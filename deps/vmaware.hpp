@@ -195,10 +195,10 @@
 #ifndef VMAWARE_HEADER
 #define VMAWARE_HEADER
 
-#ifndef __VMAWARE_DEBUG__
+#ifndef VMAWARE_DEBUG
     #if defined(_DEBUG)    /* MSVC Debug */       \
     || defined(DEBUG)     /* user or build-system */
-        #define __VMAWARE_DEBUG__
+        #define VMAWARE_DEBUG
     #endif
 #endif
 
@@ -235,22 +235,22 @@
 #endif
 
 #if VMAWARE_CPLUSPLUS >= 202302L
-    #define VMA_CPP 23
+    #define VMAWARE_CPP 23
 #elif VMAWARE_CPLUSPLUS >= 202002L
-    #define VMA_CPP 20
+    #define VMAWARE_CPP 20
 #elif VMAWARE_CPLUSPLUS >= 201703L
-    #define VMA_CPP 17
+    #define VMAWARE_CPP 17
 #elif VMAWARE_CPLUSPLUS >= 201402L
-    #define VMA_CPP 14
+    #define VMAWARE_CPP 14
 #elif VMAWARE_CPLUSPLUS >= 201103L
-    #define VMA_CPP 11
+    #define VMAWARE_CPP 11
 #elif VMAWARE_CPLUSPLUS >= 199711L
-    #define VMA_CPP 98 /* C++98 or C++03 */
+    #define VMAWARE_CPP 98 /* C++98 or C++03 */
 #else
     #error "Unsupported C++ standard (pre-C++98 or unknown)."
 #endif
     
-#if (VMA_CPP < 11 && !WINDOWS)
+#if (VMAWARE_CPP < 11 && !WINDOWS)
     #error "VMAware only supports C++11 or above, set your compiler flag to '-std=c++20' for gcc/clang, or '/std:c++20' for MSVC"
 #endif
         
@@ -272,7 +272,7 @@
     #define x86 0
 #endif
     
-#if defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__)
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__) || defined(__arm64__)
     #define ARM64 1
 #else
     #define ARM64 0
@@ -290,12 +290,6 @@
     #define ARM 0
 #endif
 
-#if (!APPLE && (VMA_CPP >= 20) && (!CLANG || __clang_major__ >= 16))
-    #define VMAWARE_SOURCE_LOCATION_SUPPORTED 1
-#else
-    #define VMAWARE_SOURCE_LOCATION_SUPPORTED 0
-#endif
-
 #if defined(__clang__)
     #define GCC 0
     #define CLANG 1
@@ -307,11 +301,17 @@
     #define CLANG 0
 #endif
 
-#if !(defined(WINDOWS) || defined(LINUX) || defined(APPLE))
+#if !(WINDOWS || LINUX || APPLE)
     #warning "Unknown OS detected, tests will be severely limited"
 #endif
 
-#if (VMA_CPP >= 14)
+#if (!APPLE && (VMAWARE_CPP >= 20) && (!CLANG || __clang_major__ >= 16))
+    #define VMAWARE_SOURCE_LOCATION_SUPPORTED 1
+#else
+    #define VMAWARE_SOURCE_LOCATION_SUPPORTED 0
+#endif
+
+#if (VMAWARE_CPP >= 14)
     #define VMAWARE_DEPRECATED(msg) [[deprecated(msg)]]
 #elif (MSVC)
     #define VMAWARE_DEPRECATED(msg) __declspec(deprecated(msg))
@@ -321,16 +321,40 @@
     #define VMAWARE_DEPRECATED(msg)
 #endif
 
-#if (VMA_CPP >= 17)
+#if defined(VMAWARE_SHARED)
+    #if (VMAWARE_MSVC)
+        #ifdef VMAWARE_DLL_EXPORT
+            #define VMAWARE_API __declspec(dllexport)
+        #else
+            #define VMAWARE_API __declspec(dllimport)
+        #endif
+    #elif (VMAWARE_GCC || VMAWARE_CLANG)
+        #define VMAWARE_API __attribute__((visibility("default")))
+    #else
+        #define VMAWARE_API
+    #endif
+#else
+    #define VMAWARE_API
+#endif
+
+#if (VMAWARE_CPP >= 17)
     #define VMAWARE_CONSTEXPR constexpr
 #else
     #define VMAWARE_CONSTEXPR
 #endif
 
-#if (VMA_CPP >= 20)
+#if (VMAWARE_CPP >= 20)
     #define VMAWARE_CONSTEXPR_20 constexpr
 #else
     #define VMAWARE_CONSTEXPR_20
+#endif
+
+#if (MSVC)
+    #define VMAWARE_NOINLINE __declspec(noinline)
+#elif (CLANG || GCC)
+    #define VMAWARE_NOINLINE __attribute__((noinline))
+#else
+    #define VMAWARE_NOINLINE
 #endif
 
 #if (MSVC)
@@ -349,11 +373,13 @@
     #define VMAWARE_RESTRICT
 #endif
 
-#if (CLANG)
+#if (VMAWARE_CPP >= 23)
+    #define VMAWARE_ASSUME(cond) [[assume(cond)]]
+#elif (VMAWARE_CLANG)
     #define VMAWARE_ASSUME(cond) __builtin_assume(cond)
-#elif (MSVC)
+#elif (VMAWARE_MSVC)
     #define VMAWARE_ASSUME(cond) __assume(cond)
-#elif (GCC)
+#elif (VMAWARE_GCC)
     #define VMAWARE_ASSUME(cond) do { if (!(cond)) __builtin_unreachable(); } while(0)
 #else
     #define VMAWARE_ASSUME(cond) do { (void)(cond); } while(0)
@@ -385,14 +411,12 @@
     #if (MSVC) || defined(__vectorcall)
         #define VMAWARE_VECTORCALL __vectorcall
     #elif (GCC || CLANG)
-        #if (x86)
-            #define VMAWARE_VECTORCALL __attribute__((vectorcall))
-        #else
-            #define VMAWARE_VECTORCALL
-        #endif
+        #define VMAWARE_VECTORCALL __attribute__((vectorcall))
     #else
         #define VMAWARE_VECTORCALL
     #endif
+#else
+    #define VMAWARE_VECTORCALL
 #endif
 
 #if (GCC || CLANG)
@@ -405,6 +429,12 @@
     #define TARGET_AVX512
 #endif
 
+#if (GCC || CLANG)
+    #define VMAWARE_SERIALIZE __attribute__((__target__("serialize")))
+#else
+    #define VMAWARE_SERIALIZE
+#endif
+
 #define VMAWARE_UNUSED(x) ((void)(x))
 
 #if (CLANG)
@@ -413,28 +443,25 @@
     #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #endif
 
-#if (VMA_CPP >= 23)
-    #include <limits>
+#if (VMAWARE_SOURCE_LOCATION_SUPPORTED)
+    #include <source_location>
 #endif
-#if (VMA_CPP >= 20)
+#if (VMAWARE_CPP >= 20)
     #include <bit>
-    #include <cstddef>
-#include <ranges>
-    #if (VMAWARE_SOURCE_LOCATION_SUPPORTED)
-        #include <source_location>
-    #endif
 #endif
-#if (VMA_CPP >= 17)
+#if (VMAWARE_CPP >= 17)
     #include <filesystem>
-    #include <system_error>
 #endif
-#ifdef __VMAWARE_DEBUG__
+#ifdef VMAWARE_DEBUG
     #include <iomanip>
     #include <ios>
     #include <locale>
     #include <codecvt>
 #endif
-
+#include <limits>
+#include <cstddef>
+#include <system_error>
+#include <ranges>
 #include <cstdio>
 #include <functional>
 #include <cstring>
@@ -459,7 +486,14 @@
 
 #if (WINDOWS)
     #include <windows.h>
-    #include <intrin.h>
+    #if (MSVC) /* Targets clang-cl too */
+        #include <intrin.h>
+    #elif (GCC || CLANG)
+        #if (x86)
+            #include <x86intrin.h> /* Although Clang provides a compatibility header for it when targeting Windows environments */
+            #include <immintrin.h>
+        #endif
+    #endif
     #include <winioctl.h>
     #include <winternl.h>
     #include <powerbase.h>
@@ -468,7 +502,6 @@
     #include <devpkey.h>
     #include <devguid.h>
     #include <bcrypt.h>
-    #include <winhvplatform.h>
 
     #pragma comment(lib, "setupapi.lib")
     #pragma comment(lib, "powrprof.lib")
@@ -514,7 +547,7 @@
     #include <chrono>
 #endif
 
-#ifdef __VMAWARE_DEBUG__
+#ifdef VMAWARE_DEBUG
     #define debug(...) VM::util::debug_msg(__VA_ARGS__)
 #else
     #define debug(...)
@@ -3846,10 +3879,7 @@ public:
         };
 
         struct engine {
-            #if ((CLANG || GCC))
-                __attribute__((__target__("serialize")))
-            #endif
-                static VMAWARE_FORCE_INLINE void warmup_cpu(const bool serialize_available) noexcept {
+                VMAWARE_SERIALIZE static VMAWARE_FORCE_INLINE void warmup_cpu(const bool serialize_available) noexcept {
                 /* Signal Intel Speed Shift / AMD CPPC to force maximum non-AVX Turbo/P-state frequency transition */
                 u64 val = 0x5a5a5a5a5a5a5a5aULL;
                 for (u32 i = 0; i < 2'000'000; ++i) {
@@ -4475,9 +4505,9 @@ public:
         }
 
         [[nodiscard]] static bool exists(const char* path) {
-        #if (VMA_CPP >= 17)
+        #if (VMAWARE_CPP >= 17)
             return std::filesystem::exists(path);
-        #elif (VMA_CPP >= 11)
+        #elif (VMAWARE_CPP >= 11)
             struct stat buffer;
             return (stat(path, &buffer) == 0);
         #endif
@@ -4519,7 +4549,7 @@ public:
         /* Wrapper for std::make_unique because it's not available for C++11 */
         template<typename T, typename... Args>
         [[nodiscard]] static std::unique_ptr<T> make_unique(Args&&... args) {
-        #if (VMA_CPP < 14)
+        #if (VMAWARE_CPP < 14)
             return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
         #else
             return std::make_unique<T>(std::forward<Args>(args)...);
@@ -4696,7 +4726,7 @@ public:
         }
 
         [[nodiscard]] static std::unique_ptr<std::string> sys_result(const char* cmd) {
-        #if (VMA_CPP < 14)
+        #if (VMAWARE_CPP < 14)
             VMAWARE_UNUSED(cmd);
             return util::make_unique<std::string>();
         #else
@@ -4737,7 +4767,7 @@ public:
         [[nodiscard]] static bool is_proc_running(const char* executable) {
         #if (LINUX)
             VMAWARE_ASSUME(executable != nullptr);
-            #if (VMA_CPP >= 17)
+            #if (VMAWARE_CPP >= 17)
             for (const auto& entry : std::filesystem::directory_iterator("/proc")) {
                 if (!entry.is_directory()) {
                     continue;
@@ -6437,7 +6467,7 @@ public:
         #endif
         };
 
-    #if (WINDOWS && defined __VMAWARE_DEBUG__)
+    #if (WINDOWS && defined VMAWARE_DEBUG)
         const char* manufacturer = "";
         const char* device_model = "";
         if (util::get_manufacturer_model(&manufacturer, &device_model)) {
@@ -6753,11 +6783,7 @@ public:
      * @category Windows, x86
      * @implements VM::TIMER
      */
-    [[nodiscard]] static bool timer() 
-    #if ((CLANG || GCC))
-        __attribute__((__target__("serialize")))
-    #endif
-    {
+    [[nodiscard]] static bool timer() VMAWARE_SERIALIZE {
     #if (x86 && WINDOWS)
         if (util::is_x86_process_on_arm()) {
             debug("TIMER: Running inside a binary translation layer");
@@ -6766,14 +6792,8 @@ public:
 
         /* Calculation of minimum threshold for instrution latency */
         double threshold = 2.5;
-        bool check_nested_hypervisors = false;
-        #if (x86_32)
-            VMAWARE_UNUSED(check_nested_hypervisors);
-        #endif
-
         if (util::hyper_x() == HYPERV_HOST) {
             debug("TIMER: Hyper-V detected, running nested checks");
-            check_nested_hypervisors = true;
             threshold = 15.0;
         }
 
@@ -6843,230 +6863,12 @@ public:
             }
         }
 
-    #if (x86_64) /* WHP stuff not available for x86_32 */
-        using whv_create_partition_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE*);
-        using whv_set_partition_property_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE, WHV_PARTITION_PROPERTY_CODE, const void*, UINT32);
-        using whv_setup_partition_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE);
-        using whv_create_virtual_processor_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE, UINT32, UINT32);
-        using whv_map_gpa_range_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE, void*, WHV_GUEST_PHYSICAL_ADDRESS, UINT64, WHV_MAP_GPA_RANGE_FLAGS);
-        using whv_set_virtual_processor_registers_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE, UINT32, const WHV_REGISTER_NAME*, UINT32, const WHV_REGISTER_VALUE*);
-        using whv_run_virtual_processor_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE, UINT32, void*, UINT32);
-        using whv_delete_partition_fn = HRESULT(__stdcall*)(WHV_PARTITION_HANDLE);
-        using nt_allocate_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
-        using nt_free_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, PSIZE_T, ULONG);
-        using nt_query_system_time_fn = NTSTATUS(__stdcall*)(PLARGE_INTEGER);
-
-        whv_create_partition_fn whv_create_partition = nullptr;
-        whv_set_partition_property_fn whv_set_partition_property = nullptr;
-        whv_setup_partition_fn whv_setup_partition = nullptr;
-        whv_create_virtual_processor_fn whv_create_virtual_processor = nullptr;
-        whv_map_gpa_range_fn whv_map_gpa_range = nullptr;
-        whv_set_virtual_processor_registers_fn whv_set_virtual_processor_registers = nullptr;
-        whv_run_virtual_processor_fn whv_run_virtual_processor = nullptr;
-        whv_delete_partition_fn whv_delete_partition = nullptr;
-        nt_allocate_virtual_memory_fn nt_allocate_virtual_memory = nullptr;
-        nt_free_virtual_memory_fn nt_free_virtual_memory = nullptr;
-        nt_query_system_time_fn nt_query_system_time = nullptr;
-
-        const UINT32 reg_count = 12;
-        PVOID mem = nullptr;
-        HMODULE winhv_dll = nullptr;
-        HMODULE ntdll_dll = nullptr;
-        WHV_PARTITION_HANDLE p = nullptr;
-        WHV_REGISTER_NAME names[reg_count]{};
-        WHV_REGISTER_VALUE values[reg_count]{};
-
-        if (check_nested_hypervisors) {
-            winhv_dll = LoadLibraryExW(L"WinHvPlatform.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-            ntdll_dll = memory::get_module(true);
-
-            if (!winhv_dll || !ntdll_dll) {
-                debug("TIMER: Not all modules required to run the nested check could be found");
-                check_nested_hypervisors = false;
-            }
-            else {
-                constexpr const char* whv_function_names[] = {
-                    "WHvCreatePartition",
-                    "WHvSetPartitionProperty",
-                    "WHvSetupPartition",
-                    "WHvCreateVirtualProcessor",
-                    "WHvMapGpaRange",
-                    "WHvSetVirtualProcessorRegisters",
-                    "WHvRunVirtualProcessor",
-                    "WHvDeletePartition"  
-                };
-                void* whv_functions[ARRAYSIZE(whv_function_names)] = {};
-                memory::get_function(winhv_dll, whv_function_names, whv_functions, ARRAYSIZE(whv_function_names), false);
-
-                constexpr const char* nt_function_names[] = {
-                    "NtAllocateVirtualMemory",
-                    "NtFreeVirtualMemory",
-                    "NtQuerySystemTime"
-                };
-                void* nt_functions[ARRAYSIZE(nt_function_names)] = {};
-                memory::get_function(ntdll_dll, nt_function_names, nt_functions, ARRAYSIZE(nt_function_names));
-
-                whv_create_partition = reinterpret_cast<whv_create_partition_fn>(whv_functions[0]);
-                whv_set_partition_property = reinterpret_cast<whv_set_partition_property_fn>(whv_functions[1]);
-                whv_setup_partition = reinterpret_cast<whv_setup_partition_fn>(whv_functions[2]);
-                whv_create_virtual_processor = reinterpret_cast<whv_create_virtual_processor_fn>(whv_functions[3]);
-                whv_map_gpa_range = reinterpret_cast<whv_map_gpa_range_fn>(whv_functions[4]);
-                whv_set_virtual_processor_registers = reinterpret_cast<whv_set_virtual_processor_registers_fn>(whv_functions[5]);
-                whv_run_virtual_processor = reinterpret_cast<whv_run_virtual_processor_fn>(whv_functions[6]);
-                whv_delete_partition = reinterpret_cast<whv_delete_partition_fn>(whv_functions[7]);
-
-                nt_allocate_virtual_memory = reinterpret_cast<nt_allocate_virtual_memory_fn>(nt_functions[0]);
-                nt_free_virtual_memory = reinterpret_cast<nt_free_virtual_memory_fn>(nt_functions[1]);
-                nt_query_system_time = reinterpret_cast<nt_query_system_time_fn>(nt_functions[2]);
-
-                if (!whv_create_partition || !whv_set_partition_property || !whv_setup_partition ||
-                    !whv_create_virtual_processor || !whv_map_gpa_range || !whv_set_virtual_processor_registers ||
-                    !whv_run_virtual_processor || !whv_delete_partition || !nt_allocate_virtual_memory ||
-                    !nt_free_virtual_memory || !nt_query_system_time)
-                {
-                    if (winhv_dll) {
-                        FreeLibrary(winhv_dll);
-                    }
-                    winhv_dll = nullptr;
-                    debug("TIMER: Not all modules required to run the nested check could be found");
-                    check_nested_hypervisors = false;
-                }
-            }
-
-            bool partition_ready = false;
-            HRESULT hr = S_OK;
-
-            if (!whv_create_partition || FAILED(hr = whv_create_partition(&p))) {
-                debug("TIMER: WHvCreatePartition failed with 0x%08X", hr);
-            }
-            else {
-                UINT32 cpu_count = 1;
-                if (whv_set_partition_property) {
-                    hr = whv_set_partition_property(p, WHvPartitionPropertyCodeProcessorCount, &cpu_count, sizeof(cpu_count));
-                    if (FAILED(hr)) {
-                        debug("TIMER: WHvSetPartitionProperty failed with 0x%08X", hr);
-                    }
-                }
-
-                if (SUCCEEDED(hr) && whv_setup_partition) {
-                    hr = whv_setup_partition(p);
-                    if (FAILED(hr)) {
-                        debug("TIMER: WHvSetupPartition failed with 0x%08X", hr);
-                    }
-                    else if (whv_create_virtual_processor) {
-                        hr = whv_create_virtual_processor(p, 0, 0);
-                        if (FAILED(hr)) {
-                            debug("TIMER: WHvCreateVirtualProcessor failed with 0x%08X", hr);
-                        }
-                        else {
-                            mem = nullptr;
-                            SIZE_T region_size = 0x2000;
-                            NTSTATUS status = static_cast<NTSTATUS>(0xC0000001L);
-
-                            if (nt_allocate_virtual_memory) {
-                                status = nt_allocate_virtual_memory(
-                                    current_process, 
-                                    &mem,
-                                    0,
-                                    &region_size,
-                                    MEM_RESERVE | MEM_COMMIT,
-                                    PAGE_EXECUTE_READWRITE 
-                                );
-                            }
-
-                            if (NT_SUCCESS(status)) {
-                                constexpr auto flags = static_cast<WHV_MAP_GPA_RANGE_FLAGS>(7);
-                                if (whv_map_gpa_range) {
-                                    hr = whv_map_gpa_range(p, mem, 0, 0x2000, flags);
-                                    if (SUCCEEDED(hr)) {
-                                        partition_ready = true;
-                                    }
-                                    else {
-                                        debug("TIMER: WHvMapGpaRange failed with 0x%08X", hr);
-                                    }
-                                }
-                            }
-                            else {
-                                debug("TIMER: NtAllocateVirtualMemory failed with 0x%08X", status);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (!partition_ready) {
-                if (p && whv_delete_partition) {
-                    whv_delete_partition(p);
-                    p = nullptr;
-                }
-                if (winhv_dll) {
-                    FreeLibrary(winhv_dll);
-                    winhv_dll = nullptr;
-                }
-                check_nested_hypervisors = false;
-            }
-            else {
-                /* It uses a 16-bit address offset of 0x3000 (little-endian 00 30). Since VMAware's dsSeg.Base is 0, the physical address (GPA) it attempts to access is DS.Base + 0x3000 = 0x3000 */
-                const u8 code[] = { 0xA0, 0x00, 0x30 }; /* Because the CS descriptor specifies a 16-bit default size, the processor decodes 0xA0 as MOV AL, [0x3000] */
-                memcpy(reinterpret_cast<u8*>(mem) + 0x1000, code, sizeof(code));
-
-                WHV_X64_SEGMENT_REGISTER cs_seg{};
-                cs_seg.Base = 0;
-                cs_seg.Limit = 0xFFFF;
-                cs_seg.Selector = 0;
-                /*
-                 * 0x9B here translates to SegmentType = 0xB (Execute/Read, accessed code segment)
-                 * NonSystemSegment = 1, DescriptorPrivilegeLevel = 0 (DPL matches real mode CPL of 0), and Present = 1,
-                 * the Default (D) bit (bit 14 of the attributes union) is left at 0 telling the hardware that this is a 16-bit segment
-                 */
-                cs_seg.Attributes = 0x9B;
-
-                WHV_X64_SEGMENT_REGISTER ds_seg{};
-                ds_seg.Base = 0;
-                ds_seg.Limit = 0xFFFF;
-                ds_seg.Selector = 0;
-                ds_seg.Attributes = 0x93; /* This translates to SegmentType = 0x3 (Read/Write, accessed data segment), which is the standard configuration for real-mode data segments */
-
-                names[0] = WHvX64RegisterCr0;
-                names[1] = WHvX64RegisterCr3;
-                names[2] = WHvX64RegisterCr4;
-                names[3] = WHvX64RegisterEfer;
-                names[4] = WHvX64RegisterRip;
-                names[5] = WHvX64RegisterRflags;
-                names[6] = WHvX64RegisterCs;
-                names[7] = WHvX64RegisterDs;
-                names[8] = WHvX64RegisterEs;
-                names[9] = WHvX64RegisterSs;
-                names[10] = WHvX64RegisterFs;
-                names[11] = WHvX64RegisterGs;
-
-                memset(values, 0, sizeof(values));
-                /* 
-                 * In CR0, Bit 0 (PE - Protection Enable) is set to 0 and Bit 31 (PG - Paging) too, this makes VMAware's guest VP L2 run in real-address mode
-                 * The other set bits (CD, NW, and ET) match the standard architectural power-on reset state of x86 processors
-                 */
-                values[0].Reg64 = 0x60000010;
-                values[1].Reg64 = 0x0;
-                values[2].Reg64 = 0x0;
-                values[3].Reg64 = 0x0;
-                values[4].Reg64 = 0x1000;
-                values[5].Reg64 = 0x2;
-                values[6].Segment = cs_seg;
-                values[7].Segment = ds_seg;
-                values[8].Segment = ds_seg;
-                values[9].Segment = ds_seg;
-                values[10].Segment = ds_seg;
-                values[11].Segment = ds_seg;
-                /* Since paging is disabled, #PF exceptions are architecturally impossible to be triggered by VMAware, forcing always an unconditional NPF */
-            }
-        }
-    #endif  
-
+        /* Prepare threads for check */
+        debug("TIMER: CPU supports SERIALIZE: ", serialize_available);
         GROUP_AFFINITY old_affinity{};
-        SetThreadGroupAffinity(current_thread, &trigger_affinity, &old_affinity);
-
         const DWORD old_process_priority = GetPriorityClass(current_process);
         const int old_thread_priority = GetThreadPriority(current_thread);
+        SetThreadGroupAffinity(current_thread, &trigger_affinity, &old_affinity);
         SetPriorityClass(current_process, ABOVE_NORMAL_PRIORITY_CLASS); /* ABOVE_NORMAL_PRIORITY_CLASS + THREAD_PRIORITY_HIGHEST = 12 base priority */
         SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST);
         SetThreadPriorityBoost(current_thread, TRUE); /* disable dynamic thread priority adjustments by Windows, not turbo boosts by the hardware itself */
@@ -7074,25 +6876,153 @@ public:
         VMAWARE_CONSTEXPR const u32 ct_seed = timer::config::get_seed();
         const size_t batch_size = timer::config::generate_batch_size(ct_seed);
 
+        const HMODULE ntdll = memory::get_module(true);
+        if (!ntdll) {
+            return false;
+        }
+
+        constexpr const char* function_names[] = {
+            "ZwRaiseException"
+        };
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
+
+        using zw_raise_exception_fn = NTSTATUS(__stdcall*)(PEXCEPTION_RECORD, PCONTEXT, BOOLEAN);
+        zw_raise_exception_fn zw_raise_exception = reinterpret_cast<zw_raise_exception_fn>(functions[0]);
+        if (!zw_raise_exception) {
+            return false;
+        }
+
         std::vector<timer::timer_tick_t> vm_samples(batch_size), ref_samples(batch_size); /* pre page-fault MMU, we won't warm-up cpuid samples for the P-states intentionally */
+        std::vector<timer::timer_tick_t> api_samples(batch_size), db_samples(batch_size);
+
         /* Lock the memory for the samples to prevent soft #PF during timing if permissions are enough */
         const bool vm_samples_locked = VirtualLock(vm_samples.data(), batch_size * sizeof(timer::timer_tick_t));
         const bool ref_samples_locked = VirtualLock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+        const bool api_samples_locked = VirtualLock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+        const bool db_samples_locked = VirtualLock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
 
         /* Independent multi-trial state initialization */
         constexpr int trials = 5;
         constexpr size_t local_max_attempts = 1000 * trials;
         timer::timer_tick_t best_cpuid_l = (std::numeric_limits<timer::timer_tick_t>::max)();
         timer::timer_tick_t best_ref_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-    #if (x86_64)
-        timer::timer_tick_t best_npf_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-        timer::timer_tick_t best_add_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-        bool nested_bypass_detected = false;
-    #endif
+        timer::timer_tick_t best_api_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+        timer::timer_tick_t best_db_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+
+        /* To isolate the SEH frame from C++ unwinding scopes */
+        struct exception_handler {
+            static VMAWARE_NOINLINE void execute_db() noexcept {
+                __try {
+                #if (MSVC)
+                    const auto eflags = __readeflags();
+                    __writeeflags(eflags | 0x100);
+                    __nop();
+                #elif (x86_64)
+                    __asm__ volatile (
+                        "pushfq \n\t"
+                        "orq $0x100, (%%rsp) \n\t"
+                        "popfq \n\t"
+                        "nop \n\t"
+                        :
+                    :
+                        : "cc", "memory"
+                    );
+                    #else
+                    __asm__ volatile (
+                        "pushfl \n\t"
+                        "orl $0x100, (%%esp) \n\t"
+                        "popfl \n\t"
+                        "nop \n\t"
+                        :
+                    :
+                        : "cc", "memory"
+                    );
+                #endif
+                }
+                __except (
+                    GetExceptionCode() == EXCEPTION_SINGLE_STEP
+                    ? (GetExceptionInformation()->ContextRecord->EFlags &= ~0x100U, EXCEPTION_CONTINUE_EXECUTION)
+                    : EXCEPTION_CONTINUE_SEARCH
+                    ) {
+                }
+            }
+
+            /* decltype to resolve the local function pointer type without template keywords */
+            static VMAWARE_NO_CFG void nt_raise_exception(
+                decltype(zw_raise_exception) zw_raise,
+                EXCEPTION_RECORD* er,
+                CONTEXT* ctx,
+                volatile bool* flag
+            ) noexcept {
+                __try {
+                #if (x86_64)
+                    RtlCaptureContext(ctx);
+                #else
+                    /* On x86_32, RtlCaptureContext is unreliable under clang-cl with FPO */
+                    ctx->ContextFlags = CONTEXT_CONTROL;
+                    uintptr_t current_esp = 0;
+                    uintptr_t current_ebp = 0;
+                    uintptr_t current_eip = 0;
+                    u32 current_cs = 0;
+                    u32 current_ss = 0;
+                    u32 current_eflags = 0;
+
+                #if (MSVC) /* This matches clang-cl on purpose */
+                    __asm {
+                        mov current_esp, esp
+                        mov current_ebp, ebp
+
+                        xor eax, eax
+                        mov ax, cs
+                        mov current_cs, eax
+
+                        xor eax, eax
+                        mov ax, ss
+                        mov current_ss, eax
+
+                        call get_eip
+                        get_eip :
+                        pop eax
+                            mov current_eip, eax
+                    }
+                    current_eflags = static_cast<u32>(__readeflags());
+                #else
+                    __asm__ volatile(
+                        "movl %%esp, %0 \n\t"
+                        "movl %%ebp, %1 \n\t"
+                        "mov %%cs, %2 \n\t"
+                        "mov %%ss, %3 \n\t"
+                        "pushfl \n\t"
+                        "popl %4 \n\t"
+                        "call 1f \n\t"
+                        "1: \n\t"
+                        "popl %5 \n\t"
+                        : "=r"(current_esp), "=r"(current_ebp), "=r"(current_cs), "=r"(current_ss), "=r"(current_eflags), "=r"(current_eip)
+                    );
+                #endif
+
+                    ctx->Esp = current_esp;
+                    ctx->Ebp = current_ebp;
+                    ctx->Eip = current_eip;
+                    ctx->SegCs = current_cs;
+                    ctx->SegSs = current_ss;
+                    ctx->EFlags = current_eflags;
+                #endif
+                    * flag = true;
+                    zw_raise(er, ctx, 1);
+                }
+                __except (
+                    GetExceptionCode() == EXCEPTION_SINGLE_STEP
+                    ? EXCEPTION_EXECUTE_HANDLER
+                    : EXCEPTION_CONTINUE_SEARCH
+                    ) {
+                }
+            }
+        };
 
         std::thread t1(counter_thread);
         state.start_test.store(true, std::memory_order_release);
-        SleepEx(0, FALSE); /* end of setup phase, try to get fresh quantum and give time to counter thread */
 
         /* Cache and CPU scheduler warm-up won't affect anything in the measurement loop, so ramp up frequency/P-states to a high non-AVX Turbo/P-state without vmexits */
         timer::engine::warmup_cpu(serialize_available);
@@ -7239,108 +7169,82 @@ public:
                 }
             }
 
-            /* If Hyper-V is enabled, check if there's another hypervisor sitting on top of Hyper-V with an unconditional vmexit */
-        #if (x86_64)
-            if (check_nested_hypervisors) {
-                constexpr int sample_amount = 100;
-                std::vector<timer::timer_tick_t> npf_samples(sample_amount);
-                std::vector<timer::timer_tick_t> add_samples(sample_amount);
+            size_t exc_valid = 0;
+            size_t exc_invalid = 0;
 
-                const bool npf_locked = 
-                    VirtualLock(npf_samples.data(), sample_amount * sizeof(timer::timer_tick_t))
-                    &&
-                    VirtualLock(add_samples.data(), sample_amount * sizeof(timer::timer_tick_t));
+            /* 
+             * I choose #DB because it forces a L0 to L1 nested vmexit when Hyper-V is running
+             * L0 must sync the exception bitmap with L1 in order for this to receive pending events, as the CPU always jumps to the hv running on the metal
+             * VMCB/VMCS public dumps shows Hyper-V intercepts #DB, #AC and #MC
+             */
+            while (exc_valid < batch_size && exc_invalid < local_max_attempts) {
+                timer::timer_tick_t db_pre, db_post, api_pre, api_post, sync;
 
-                size_t npf_valid = 0;
-                LARGE_INTEGER system_time;
-                volatile timer::timer_tick_t* const nested_counter_ptr = &state.counter;
+                sync = *counter_ptr;
+                while (*counter_ptr == sync);
+                sync = *counter_ptr;
+                VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                while (*counter_ptr == sync);
 
-                for (size_t i = 0; i < sample_amount; ++i) {
-                    timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
+                db_pre = *counter_ptr;
+                std::atomic_signal_fence(std::memory_order_acq_rel);
+                exception_handler::execute_db();
+                std::atomic_signal_fence(std::memory_order_acq_rel);
+                db_post = *counter_ptr;
 
-                    sync = *nested_counter_ptr;
-                    while (*nested_counter_ptr == sync);
-                    sync = *nested_counter_ptr;
-                    while (*nested_counter_ptr == sync);
+                sync = *counter_ptr;
+                while (*counter_ptr == sync);
+                sync = *counter_ptr;
+                VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                while (*counter_ptr == sync);
 
-                    r_pre = *nested_counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    {
-                        for (size_t j = 0; j < 2256; j++) {
-                            nt_query_system_time(&system_time); /* one of the fastest syscalls */
-                        }
-                    }
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    r_post = *nested_counter_ptr;
+                volatile bool flag = false;
+                CONTEXT ctx{};
+                ctx.ContextFlags = CONTEXT_FULL;
 
-                    values[4].Reg64 = 0x1000;
-                    if (whv_set_virtual_processor_registers) {
-                        whv_set_virtual_processor_registers(p, 0, names, reg_count, values);
-                    }
-                    WHV_RUN_VP_EXIT_CONTEXT exit_ctx{};
+                EXCEPTION_RECORD er{};
+                er.ExceptionCode = EXCEPTION_SINGLE_STEP;
+                er.ExceptionFlags = 0;
 
-                    sync = *nested_counter_ptr;
-                    while (*nested_counter_ptr == sync);
-                    sync = *nested_counter_ptr;
-                    while (*nested_counter_ptr == sync);
+                api_pre = *counter_ptr;
+                std::atomic_signal_fence(std::memory_order_acq_rel);
+                exception_handler::nt_raise_exception(zw_raise_exception, &er, &ctx, &flag);
+                std::atomic_signal_fence(std::memory_order_acq_rel);
+                api_post = *counter_ptr;
 
-                    v_pre = *nested_counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_seq_cst);
-                    /*
-                     * Since GPA 0x3000 is outside our mapped range (0 to 0x2000), CPU triggers an EPT/NPT violation (GPA fault) because it belongs to the second-level address translation
-                     * Nested page faults ALWAYS require L0 involvement to be handled, and VMAware can force L0 to synthethize a nested VMEXIT so it forwards the event to L1
-                     * This type of VMEXIT is the only VMEXIT that can be reached from L2 CPL3 in both AMD and Intel
-                     * WHP is just used to make the vCPU in 16-bit real mode and disable first-level address translation faults, and to not make EPT violations to be translated as a #VE
-                     */
-                    if (whv_run_virtual_processor) {
-                        whv_run_virtual_processor(p, 0, &exit_ctx, sizeof(exit_ctx));
-                    }
-                    std::atomic_signal_fence(std::memory_order_seq_cst);
-                    v_post = *nested_counter_ptr;
-
-                    if (v_post > v_pre && r_post > r_pre) {
-                        if (exit_ctx.ExitReason == WHvRunVpExitReasonMemoryAccess) {
-                            npf_samples[npf_valid] = v_post - v_pre;
-                            add_samples[npf_valid] = r_post - r_pre;
-                            npf_valid++;
-                        }
-                        else {
-                            debug("TIMER: Detected hypervisor faking exceptions for nested page faults");
-                            nested_bypass_detected = true;
-                            break;
-                        }                    
-                    }
-
-                    timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                if (api_post > api_pre && db_post > db_pre) {
+                    api_samples[exc_valid] = api_post - api_pre;
+                    db_samples[exc_valid] = db_post - db_pre;
+                    exc_valid++;
+                }
+                else {
+                    exc_invalid++;
                 }
 
-                if (npf_valid > 0) {
-                    std::vector<timer::timer_tick_t> active_npf_samples(npf_samples.begin(), npf_samples.begin() + npf_valid);
-                    std::vector<timer::timer_tick_t> active_add_samples(add_samples.begin(), add_samples.begin() + npf_valid);
+                timer::engine::burn_random_cycles(ct_seed, api_post, db_post);
+            }
 
-                    const timer::timer_tick_t npf_l = timer::engine::calculate_latency(active_npf_samples);
-                    const timer::timer_tick_t add_l = timer::engine::calculate_latency(active_add_samples);
+            if (exc_valid > 0) {
+                std::vector<timer::timer_tick_t> active_api_samples(api_samples.begin(), api_samples.begin() + exc_valid);
+                std::vector<timer::timer_tick_t> active_db_samples(db_samples.begin(), db_samples.begin() + exc_valid);
 
-                    if (npf_l < best_npf_l) {
-                        best_npf_l = npf_l;
-                    }
-                    if (add_l < best_add_l) {
-                        best_add_l = add_l;
-                    }
+                const timer::timer_tick_t api_l = timer::engine::calculate_latency(active_api_samples);
+                const timer::timer_tick_t db_l = timer::engine::calculate_latency(active_db_samples);
+
+                if (api_l < best_api_l) {
+                    best_api_l = api_l;
                 }
-
-                if (npf_locked) {
-                    VirtualUnlock(npf_samples.data(), sample_amount * sizeof(timer::timer_tick_t));
-                    VirtualUnlock(add_samples.data(), sample_amount * sizeof(timer::timer_tick_t));
+                if (db_l < best_db_l) {
+                    best_db_l = db_l;
                 }
             }
-        #endif
         }
 
         state.test_done.store(true, std::memory_order_release);
         t1.join();
 
-        const bool invalid_measurement = (best_ref_l == (std::numeric_limits<timer::timer_tick_t>::max)()) && (best_cpuid_l == (std::numeric_limits<timer::timer_tick_t>::max)());
+        constexpr auto uninitialized_tick = (std::numeric_limits<timer::timer_tick_t>::max)();
+        const bool invalid_measurement = (best_ref_l == uninitialized_tick && best_cpuid_l == uninitialized_tick) || (best_db_l == uninitialized_tick && best_api_l == uninitialized_tick);
 
         /* Analyze instruction latency results and report exactly what VMAware found */
         if (!invalid_measurement) {
@@ -7357,6 +7261,15 @@ public:
                 debug("TIMER: Detected artificial IPI delivery to timing threads");
                 hypervisor_detected = true;
             }
+
+            const double exception_ratio = best_db_l ? (double)best_db_l / (double)best_api_l : 0.0;
+            debug("TIMER: Exception > VMM -> ", best_db_l, " | nVMM -> ", best_api_l, " | Ratio -> ", exception_ratio);
+
+            if (exception_ratio >= 4.0) {
+                debug("TIMER: Detected #DB interception latency");
+                debug("TIMER: If you have #DB interception disabled, it means you're running under nested");
+                hypervisor_detected = true;
+            }
         }
         else {
             /* 
@@ -7365,32 +7278,9 @@ public:
              * If there's no single valid reference, it means that the two threads were running in the same physical core, even if the kernel (and thus, VMAware) believes they were on different cores 
              * This is proof that there's another OS scheduler running on top of the current guest OS
              */
-            debug("TIMER: Detected hypervisor with no 1:1 vCPU pinning");
+            debug("TIMER: Detected hypervisor with no 1:1 vCPU pinning (timing desynchronization)");
             hypervisor_detected = true;
         }
-
-    #if (x86_64)
-        /* Analyze memory latency results */
-        if (check_nested_hypervisors) {
-            const double npf_ratio = best_add_l ? (double)best_npf_l / (double)best_add_l : 0;
-            debug("TIMER: Memory > VMM -> ", best_npf_l, " | nVMM -> ", best_add_l, " | Ratio -> ", npf_ratio);
-            if (npf_ratio >= 4.00 || nested_bypass_detected) {
-                hypervisor_detected = true;
-            }
-        }
-
-        /* Cleanup stuff until end of function */
-        if (mem && nt_free_virtual_memory) {
-            SIZE_T free_size = 0;
-            nt_free_virtual_memory(current_process, &mem, &free_size, MEM_RELEASE);
-        }
-        if (p && whv_delete_partition) {
-            whv_delete_partition(p);
-        }
-        if (winhv_dll) {
-            FreeLibrary(winhv_dll);
-        }
-    #endif
 
         SetThreadPriorityBoost(current_thread, FALSE);
         SetThreadPriority(current_thread, old_thread_priority);
@@ -7401,6 +7291,12 @@ public:
         }
         if (ref_samples_locked) {
             VirtualUnlock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+        }
+        if (api_samples_locked) {
+            VirtualUnlock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+        }
+        if (db_samples_locked) {
+            VirtualUnlock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
         }
 
         return hypervisor_detected;
@@ -7617,7 +7513,7 @@ public:
             debug("MAC: ", "not successful");
         }
 
-    #ifdef __VMAWARE_DEBUG__
+    #ifdef VMAWARE_DEBUG
         {
             std::stringstream ss;
             ss << std::hex << std::setw(2) << std::setfill('0')
@@ -7670,7 +7566,7 @@ public:
      * @implements VM::DMESG
      */
     [[nodiscard]] static bool dmesg() {
-    #if (VMA_CPP <= 11)
+    #if (VMAWARE_CPP <= 11)
         return false;
     #else
         if (!util::is_admin()) {
@@ -8508,7 +8404,7 @@ public:
             /* 64-bit Linux: IDT descriptor is 10 bytes (2-byte limit + 8-byte base) */
             __asm__ __volatile__("sidt %0" : "=m"(values));
 
-        #ifdef __VMAWARE_DEBUG__
+        #ifdef VMAWARE_DEBUG
             debug("SIDT: values = ");
             for (u8 i = 0; i < 10; ++i) {
                 debug(std::hex, std::setw(2), std::setfill('0'), static_cast<u32>(values[i]));
@@ -8525,7 +8421,7 @@ public:
             /* 32-bit Linux: IDT descriptor is 6 bytes (2-byte limit + 4-byte base) */
             __asm__ __volatile__("sidt %0" : "=m"(values));
 
-        #ifdef __VMAWARE_DEBUG__
+        #ifdef VMAWARE_DEBUG
             debug("SIDT: values = ");
             for (u8 i = 0; i < 6; ++i) {
                 debug(std::hex, std::setw(2), std::setfill('0'), static_cast<u32>(values[i]));
@@ -8694,26 +8590,11 @@ public:
 
 
     /**
-     * @brief Check for default Azure hostname format (Azure uses Hyper-V as their base VM brand)
+     * @brief Check for default Azure hostname format
      * @category Windows, Linux
      * @implements VM::AZURE
      */
     [[nodiscard]] static bool azure() noexcept {
-        /*
-         * Returns 1u if alphanumeric, 0u if not. Here we use unsigned integers
-         * instead of booleans to avoid static analysis warnings
-         * about bitwise operations on boolean types
-         */
-        auto is_alnum_ascii = [](const char c) noexcept -> unsigned int {
-            const auto l = static_cast<unsigned char>(c | 0x20);
-            const auto d = static_cast<unsigned char>(c);
-
-            const unsigned int is_letter = (static_cast<unsigned char>(l - 'a') < 26) ? 1u : 0u;
-            const unsigned int is_digit = (static_cast<unsigned char>(d - '0') < 10) ? 1u : 0u;
-
-            return is_letter | is_digit;
-        };
-
     #if (WINDOWS)
         char buf[MAX_COMPUTERNAME_LENGTH + 1];
         DWORD len = sizeof(buf);
@@ -9462,7 +9343,7 @@ public:
 
         #if (LINUX)
             const std::string pci_path = "/sys/bus/pci/devices";
-            #if (VMA_CPP >= 17)
+            #if (VMAWARE_CPP >= 17)
                 /* Std::filesystem throws exceptions when directories don't exist (SIGSEGV) */
                 std::error_code ec;
                 auto dir_iter = std::filesystem::directory_iterator(pci_path, ec);
@@ -12003,7 +11884,7 @@ public:
 
         /* Static struct for SEH filtering to avoid release-mode lambda optimizations */
         struct exception_handler {
-            static LONG execute(const u32 code, EXCEPTION_POINTERS* info, trap_context* ctx) noexcept {
+            static VMAWARE_NOINLINE LONG execute(const u32 code, EXCEPTION_POINTERS* info, trap_context* ctx) noexcept {
                 if (!info || !info->ExceptionRecord || !info->ContextRecord) {
                     return EXCEPTION_CONTINUE_SEARCH;
                 }
@@ -12101,7 +11982,7 @@ public:
         }
 
         struct exception_handler {
-            static int execute(const unsigned int code, struct _EXCEPTION_POINTERS* ep, volatile ULONG_PTR* out_trap_ip, volatile bool* out_anomaly) {
+            static VMAWARE_NOINLINE int execute(const unsigned int code, struct _EXCEPTION_POINTERS* ep, volatile ULONG_PTR* out_trap_ip, volatile bool* out_anomaly) {
                 if (code == EXCEPTION_SINGLE_STEP && ep && ep->ContextRecord) {
                 #if (x86_64)
                     *out_trap_ip = ep->ContextRecord->Rip;
@@ -12112,6 +11993,7 @@ public:
                     return EXCEPTION_CONTINUE_EXECUTION;
                 }
 
+                debug("INTERRUPT_SHADOW: Exception anomaly detected, hypervisor seems to be present with CPUID interception disabled");
                 *out_anomaly = true;
                 return EXCEPTION_EXECUTE_HANDLER;
             }
@@ -12328,9 +12210,8 @@ public:
             bool step_triggered = false;
             const u64 stub_base = reinterpret_cast<u64>(dbvm_icebp_stub);
 
-            /* Local helper struct to evaluate exception parameters across compilers */
-            struct icebp_handler {
-                static LONG execute(
+            struct exception_handler {
+                static VMAWARE_NOINLINE LONG execute(
                     const EXCEPTION_POINTERS* ep,
                     DWORD exception_code,
                     bool* rip_failed,
@@ -12358,7 +12239,7 @@ public:
             __try {
                 memory::execute(dbvm_icebp_stub);
             }
-            __except (icebp_handler::execute(
+            __except (exception_handler::execute(
                 GetExceptionInformation(),
                 GetExceptionCode(),
                 &rip_failed,
@@ -13768,6 +13649,11 @@ public:
                 continue;
             }
 
+            #define DWORD_MAX 4294967295
+            if (needed > (DWORD_MAX - sizeof(wchar_t))) {
+                continue;
+            }
+
             if (needed + sizeof(wchar_t) > buffer_size) {
                 DWORD new_size = needed + sizeof(wchar_t);
                 BYTE* new_buffer = static_cast<BYTE*>(realloc(buffer, new_size));
@@ -13792,7 +13678,9 @@ public:
                 continue;
             }
 
-            reinterpret_cast<wchar_t*>(buffer)[needed / sizeof(wchar_t)] = L'\0';
+            if (buffer != nullptr) {
+                reinterpret_cast<wchar_t*>(buffer)[needed / sizeof(wchar_t)] = L'\0';
+            }
 
             const wchar_t* const buffer_start = reinterpret_cast<const wchar_t*>(buffer);
             const wchar_t* const buffer_end = buffer_start + (needed / sizeof(wchar_t));
@@ -14013,6 +13901,11 @@ public:
     #if (!x86)
         return false;
     #else
+        #if (defined VMAWARE_DEBUG)
+            if (IsDebuggerPresent()) {
+                return false; /* To not hit the debugger breakpoint, making the debugger impossible to advance*/
+            }
+        #endif  
         if (util::is_x86_process_on_arm()) {
             return false;
         }
@@ -14238,8 +14131,8 @@ public:
         thread_local static volatile bool ermsb_trap_detected = false;
         ermsb_trap_detected = false;
 
-        struct handler {
-            static LONG __stdcall execute(const PEXCEPTION_POINTERS ctx) {
+        struct exception_handler {
+            static VMAWARE_NOINLINE LONG __stdcall execute(const PEXCEPTION_POINTERS ctx) {
                 if (ctx->ExceptionRecord->ExceptionCode == EXCEPTION_SINGLE_STEP) {
                     ermsb_trap_detected = true;
                     return EXCEPTION_CONTINUE_EXECUTION;
@@ -14248,7 +14141,7 @@ public:
             }
         };
 
-        const PVOID veh_handle = rtl_add_vectored_exception_handler(1, handler::execute);
+        const PVOID veh_handle = rtl_add_vectored_exception_handler(1, exception_handler::execute);
         if (!veh_handle) {
             SIZE_T free_size = 0;
             nt_free_virtual_memory(current_process, &src_page, &free_size, MEM_RELEASE);
@@ -14325,8 +14218,8 @@ public:
             return false;
         }
 
-        struct handler {
-            static LONG execute(const EXCEPTION_POINTERS* info, DWORD* exceptionCode) {
+        struct exception_handler {
+            static VMAWARE_NOINLINE LONG execute(const EXCEPTION_POINTERS* info, DWORD* exceptionCode) {
                 *exceptionCode = info->ExceptionRecord->ExceptionCode;
             #if (x86_64)
                 info->ContextRecord->Rbx = info->ContextRecord->R8;
@@ -14344,7 +14237,7 @@ public:
             memory::execute(cpuid_singlestep_stub);
             /* If the hypervisor completely swallows all exceptions, is_vm still remains true */
         }
-        __except (handler::execute(GetExceptionInformation(), &exc_code_cpuid)) {
+        __except (exception_handler::execute(GetExceptionInformation(), &exc_code_cpuid)) {
             /*
              * If the exception doesnt reach this block, hypervisor delayed the trap flag over cpuid, execution fell through into
              * the bad bytes (C7 B2) causing STATUS_ILLEGAL_INSTRUCTION
@@ -14373,7 +14266,7 @@ public:
             __try {
                 memory::execute(rdpru_singlestep_stub);
             }
-            __except (handler::execute(GetExceptionInformation(), &exc_code_rdpru)) {
+            __except (exception_handler::execute(GetExceptionInformation(), &exc_code_rdpru)) {
                 if (exc_code_rdpru == EXCEPTION_SINGLE_STEP) {
                     rdpru_is_vm = false;
                 }
