@@ -13903,7 +13903,7 @@ public:
     #else
         #if (defined VMAWARE_DEBUG)
             if (IsDebuggerPresent()) {
-                return false; /* To not hit the debugger breakpoint, making the debugger impossible to advance*/
+                return false; /* To not hit the debugger breakpoint, making the debugger impossible to advance */
             }
         #endif  
         if (util::is_x86_process_on_arm()) {
