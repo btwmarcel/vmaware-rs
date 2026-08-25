@@ -254,7 +254,13 @@
     #error "VMAware only supports C++11 or above, set your compiler flag to '-std=c++20' for gcc/clang, or '/std:c++20' for MSVC"
 #endif
         
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(_M_ARM64EC) || defined(__arm64ec__)
+    #define ARM64EC 1
+#else
+    #define ARM64EC 0
+#endif
+
+#if (defined(__x86_64__) || defined(_M_X64)) && !ARM64EC
     #define x86_64 1
 #else
     #define x86_64 0
@@ -272,7 +278,7 @@
     #define x86 0
 #endif
     
-#if defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__) || defined(__arm64__)
+#if (defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__) || defined(__arm64__)) && !ARM64EC
     #define ARM64 1
 #else
     #define ARM64 0
@@ -1689,6 +1695,7 @@ public:
                 { "i3-9350KF", 4, false },
                 { "i3-N300", 8, false },
                 { "i3-N305", 8, false },
+                { "i3-14100TE", 8, true },
 
                 /* i5 series */
                 { "i5-10200H", 8, true },
@@ -2049,6 +2056,8 @@ public:
                 { "i5-14600K", 20, true },
                 { "i5-14600KF", 20, true },
                 { "i5-14600T", 20, true },
+                { "i5-14501E", 12, true },
+                { "i5-14501TE", 12, true },
 
                 /* i7 series */
                 { "i7-10510U", 8, true },
@@ -2389,6 +2398,9 @@ public:
                 { "i7-14700T", 28, true },
                 { "i7-14790F", 24, true },
                 { "i7-14950HX", 24, true },
+                { "i7-14700TE", 28, true },
+                { "i7-14701E", 16, true },
+                { "i7-14701TE", 16, true },
 
                 /* i9 series */
                 { "i9-7900X", 20, true },
@@ -2468,7 +2480,10 @@ public:
                 { "i9-14900KF", 32, true },
                 { "i9-14900KS", 32, true },
                 { "i9-14900T", 32, true },
-                { "i9-14901KE", 16, true }
+                { "i9-14901KE", 16, true },
+                { "i9-14900TE", 32, true },
+                { "i9-14901E", 16, true },
+                { "i9-14901TE", 16, true }
             };
 
             static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "Intel Core database must contain at least one entry.");
@@ -2555,6 +2570,24 @@ public:
                 { "E-2288G", 16, true },
                 { "E-2276M", 12, true },
                 { "E-2286M", 16, true },
+                { "E-2314", 4, false },
+                { "E-2324G", 4, false },
+                { "E-2334", 8, true },
+                { "E-2336", 12, true },
+                { "E-2356G", 12, true },
+                { "E-2374G", 8, true },
+                { "E-2378", 16, true },
+                { "E-2378G", 16, true },
+                { "E-2386G", 12, true },
+                { "E-2388G", 16, true },
+                { "E-2414", 4, false },
+                { "E-2434", 8, true },
+                { "E-2436", 12, true },
+                { "E-2456", 12, true },
+                { "E-2468", 16, true },
+                { "E-2478", 16, true },
+                { "E-2486", 12, true },
+                { "E-2488", 16, true },
 
                 /* Xeon W */
                 { "W-2102", 4, false },
@@ -2619,35 +2652,88 @@ public:
 
         static void get_intel_ultra_db(const cpu_entry*& out_ptr, size_t& out_size) noexcept {
             static constexpr cpu_entry db[] = {
-                /* Series 2 (Arrow Lake - Desktop/Mobile) - No SMT/HT on P-Cores */
+                /* Series 2 (Arrow Lake - Desktop/Mobile) */
                 { "285K", 24, false },
                 { "265K", 20, false },
                 { "265KF", 20, false },
                 { "245K", 14, false },
                 { "245KF", 14, false },
 
-                /* Series 2 (Lunar Lake - Mobile) - No HT on P-Cores */
+                /* Series 2 (Arrow Lake-S Desktop Non-K and T) */
+                { "285", 24, false },
+                { "285T", 24, false },
+                { "265", 20, false },
+                { "265F", 20, false },
+                { "265T", 20, false },
+                { "245", 14, false },
+                { "245T", 14, false },
+                { "235", 14, false },
+                { "235T", 14, false },
+                { "225", 10, false },
+                { "225F", 10, false },
+                { "205", 8, false },
+
+                /* Series 2 (Arrow Lake-S Desktop Plus) */
+                { "270K Plus", 24, false },
+                { "250K Plus", 18, false },
+                { "250KF Plus", 18, false },
+
+                /* Series 2 (Arrow Lake-HX Mobile) */
+                { "285HX", 24, false },
+                { "275HX", 24, false },
+                { "265HX", 20, false },
+                { "255HX", 20, false },
+                { "245HX", 14, false },
+                { "235HX", 14, false },
+
+                /* Series 2 (Lunar Lake - Mobile) */
                 { "288V", 8, false },
                 { "268V", 8, false },
                 { "258V", 8, false },
+                { "266V", 8, false },
+                { "256V", 8, false },
+                { "238V", 8, false },
+                { "236V", 8, false },
+                { "228V", 8, false },
+                { "226V", 8, false },
+
+                /* Series 2 (Arrow Lake-HX Mobile Plus) */
+                { "290HX Plus", 24, false },
+                { "270HX Plus", 24, false },
+
+                /* Series 2 (Arrow Lake-H Mobile) */
+                { "285H", 16, false },
+                { "265H", 16, false },
+                { "255H", 16, false },
+                { "235H", 14, false },
+                { "225H", 14, false },
+
+                /* Series 2 (Arrow Lake-U Mobile) */
+                { "265U", 14, true },
+                { "255U", 14, true },
+                { "235U", 14, true },
+                { "225U", 14, true },
+
+                /* Series 2 (Arrow Lake-S Entry Level) */
+                { "235A", 14, false },
+                { "235TA", 14, false },
+                { "235UA", 14, true },
 
                 /*
-                 * Series 1 (Meteor Lake - Mobile) - P-Cores have SMT/HT
-                 * 6P + 8E + 2LP = 16 Cores. Threads = (6*2) + 8 + 2 = 22 Threads
+                 * Series 1 (Meteor Lake - Mobile)
                  */
                 { "185H", 22, true },
                 { "165H", 22, true },
                 { "155H", 22, true },
-
-                /* 4P + 8E + 2LP = 14 Cores. Threads = (4*2) + 8 + 2 = 18 Threads */
                 { "135H", 18, true },
                 { "125H", 18, true },
-
-                /* 2P + 8E + 2LP = 12 Cores. Threads = (2*2) + 8 + 2 = 14 Threads */
                 { "165U", 14, true },
                 { "155U", 14, true },
+                { "150U", 12, true },
                 { "135U", 14, true },
                 { "125U", 14, true },
+                { "120U", 12, true },
+                { "100U", 8, true }
             };
 
             static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "Intel Ultra database must contain at least one entry.");
@@ -16584,19 +16670,11 @@ public:
         return "Running on bare metal";
     }
 
-
-    VMAWARE_DEPRECATED("is_hardened() is scheduled for removal in post-2.8.1. Use detect() instead.")
-    static bool is_hardened(const flagset& flags = core::generate_default()) noexcept {
-        VMAWARE_UNUSED(flags);
-        return false;
-    }
-
     struct vmaware {
         std::string brand;
         std::string type;
         std::string conclusion;
         bool is_vm = false;
-        bool is_hardened = false;
         u8 percentage = 0;
         u8 detected_count = 0;
         u16 technique_count = 0;
@@ -16620,7 +16698,6 @@ public:
             type = VM::type(flags);
             conclusion = VM::conclusion(flags);
             is_vm = VM::detect(flags);
-            is_hardened = false;
             percentage = VM::percentage(flags);
             detected_count = VM::detected_count(flags);
             technique_count = VM::technique_count;
