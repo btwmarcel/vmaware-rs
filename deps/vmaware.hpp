@@ -852,7 +852,6 @@ public:
     };
 
     enum class brand_enum : u8 {
-        INVALID,
         VBOX,
         VMWARE,
         VMWARE_EXPRESS,
@@ -928,7 +927,6 @@ public:
 
     static constexpr u8 enum_size = MULTIPLE; /* get enum size through value of last element */
     static constexpr u8 settings_count = static_cast<u8>(MULTIPLE - HIGH_THRESHOLD + 1); /* get number of settings technique flags */
-    static constexpr u8 INVALID = 255; /* explicit invalid technique macro */
     static constexpr u16 base_technique_count = HIGH_THRESHOLD; /* original technique count, constant on purpose (can also be used as a base count value if custom techniques are added) */
     static constexpr u16 threshold_score = 150; /* standard threshold score */
     static constexpr u16 high_threshold_score = 300; /* new threshold score from 150 to 300 if VM::HIGH_THRESHOLD flag is enabled */
@@ -2819,10 +2817,20 @@ public:
                 { "a8-8600p", 4, false },
                 { "a8-8650b", 4, false },
 
-                /* AI Series (Strix Point) - Hybrid, but both Zen 5 and Zen 5c support SMT */
-                { "365", 20, true }, /* Ryzen AI 7 365 */
-                { "370", 24, true }, /* Ryzen AI 9 HX 370 */
-                { "375", 24, true }, /* Ryzen AI 9 HX 375 */
+                /* AI Series (Strix Point) */
+                { "365", 20, true },
+                { "370", 24, true }, 
+                { "375", 24, true }, 
+                { "350", 16, true },
+                { "340", 12, true },
+
+                /* Ryzen AI PRO 300 Series (Enterprise Strix/Krackan Point) */
+                { "pro-340", 12, true },
+                { "pro-350", 16, true },
+                { "pro-360", 16, true },
+                { "pro-365", 20, true },
+                { "pro-370", 24, true },
+                { "pro-375", 24, true },
 
                 /* Athlon */
                 { "3050c", 2, false },
@@ -3205,6 +3213,7 @@ public:
                 { "9950x", 32, true },
                 { "9950x3d", 32, true },
                 { "9955hx", 32, true },
+                { "9600x3d", 12, true },
                 { "5945", 24, true },
                 { "6950h", 16, true },
                 { "6950hs", 16, true },
@@ -3496,13 +3505,18 @@ public:
             }
 
             static VMAWARE_CONSTEXPR void store_manufacturer(const char* VMAWARE_RESTRICT s) noexcept {
-                if (!s) { 
-                    manufacturer[0] = '\0'; 
-                    return; 
+                if (!s) {
+                    manufacturer[0] = '\0';
+                    return;
                 }
-                const size_t n = strlen(s);
                 const size_t cap = sizeof(manufacturer) - 1;
-                const size_t tocopy = (n > cap) ? cap : n;
+
+                size_t n = 0;
+                while (n < cap && s[n] != '\0') {
+                    n++;
+                }
+
+                const size_t tocopy = n;
                 for (size_t i = 0; i < tocopy; ++i) {
                     manufacturer[i] = s[i];
                 }
@@ -3515,9 +3529,14 @@ public:
                     model[0] = '\0';
                     return; 
                 }
-                const size_t n = strlen(s);
-                const size_t cap = sizeof(model) - 1;
-                const size_t tocopy = (n > cap) ? cap : n;
+                const size_t cap = sizeof(manufacturer) - 1;
+
+                size_t n = 0;
+                while (n < cap && s[n] != '\0') {
+                    n++;
+                }
+
+                const size_t tocopy = n;
                 for (size_t i = 0; i < tocopy; ++i) {
                     model[i] = s[i];
                 }
@@ -4854,25 +4873,33 @@ public:
         #if (LINUX)
             VMAWARE_ASSUME(executable != nullptr);
             #if (VMAWARE_CPP >= 17)
-            for (const auto& entry : std::filesystem::directory_iterator("/proc")) {
-                if (!entry.is_directory()) {
-                    continue;
-                }
-
-                const std::string filename = entry.path().filename().string();
-            #else
-            std::unique_ptr<DIR, decltype(&closedir)> dir(opendir("/proc"), closedir);
-            if (!dir) {
-                debug("util::is_proc_running: ", "failed to open /proc directory");
+            std::error_code ec;
+            auto dir_iter = std::filesystem::directory_iterator("/proc", ec);
+            if (ec) {
                 return false;
             }
 
-            struct dirent* entry;
-            while ((entry = readdir(dir.get())) != nullptr) {
-                std::string filename(entry->d_name);
-                if (filename == "." || filename == "..") {
-                    continue;
+            try {
+                for (const auto& entry : dir_iter) {
+                    std::error_code file_ec;
+                    if (!entry.is_directory(file_ec)) {
+                        continue;
+                    }
+
+                    const std::string filename = entry.path().filename().string();
+            #else
+                std::unique_ptr<DIR, decltype(&closedir)> dir(opendir("/proc"), closedir);
+                if (!dir) {
+                    debug("util::is_proc_running: ", "failed to open /proc directory");
+                    return false;
                 }
+
+                struct dirent* entry;
+                while ((entry = readdir(dir.get())) != nullptr) {
+                    std::string filename(entry->d_name);
+                    if (filename == "." || filename == "..") {
+                        continue;
+                    }
             #endif
                 if (!string::is_numeric(filename)) {
                     continue;
@@ -4916,11 +4943,15 @@ public:
                 return true;
             }
 
+        #if (VMAWARE_CPP >= 17)
+            } catch (...) {}
+        #endif
+
             return false;
         #else
             VMAWARE_UNUSED(executable);
             return false;
-        #endif
+        #endif  
         }
 
 
@@ -5344,7 +5375,11 @@ public:
 
                             size_t temp = offset + 12;
                             bool alg_error = false;
-                            for (u32 i = 0; i < digest_count && temp + 2 <= log_size; ++i) {
+                            for (u32 i = 0; i < digest_count; ++i) {
+                                if (log_size - temp < 2) {
+                                    alg_error = true;
+                                    break;
+                                }
                                 const u16 alg_id = *reinterpret_cast<const u16*>(log_buffer + temp);
                                 u16 digest_size = 0;
                                 bool alg_found = false;
@@ -5356,6 +5391,10 @@ public:
                                     }
                                 }
                                 if (!alg_found || digest_size == 0) {
+                                    alg_error = true;
+                                    break;
+                                }
+                                if (log_size - temp - 2 < digest_size) {
                                     alg_error = true;
                                     break;
                                 }
@@ -5906,7 +5945,6 @@ public:
             if (active_brands.size() > 1) {
                 remove(brand_enum::HYPERV_ROOT);
                 remove(brand_enum::NULL_BRAND);
-                remove(brand_enum::INVALID);
             }
 
             /* If filtering emptied the vector, fall back to NULL_BRAND */
@@ -5923,52 +5961,52 @@ public:
             struct rule {
                 brand_enum a;
                 brand_enum b;
-                brand_enum c; /* brand_enum::INVALID if unused (double merge) */
+                brand_enum c; /* brand_enum::NULL_BRAND if unused (double merge) */
                 brand_enum result;
             };
 
             static constexpr rule merge_rules[] = {
                 /* Double merges */
-                { brand_enum::VPC, brand_enum::HYPERV, brand_enum::INVALID, brand_enum::HYPERV_VPC },
+                { brand_enum::VPC, brand_enum::HYPERV, brand_enum::NULL_BRAND, brand_enum::HYPERV_VPC },
 
-                { brand_enum::AZURE_HYPERV, brand_enum::HYPERV, brand_enum::INVALID, brand_enum::AZURE_HYPERV },
-                { brand_enum::AZURE_HYPERV, brand_enum::VPC, brand_enum::INVALID, brand_enum::AZURE_HYPERV },
-                { brand_enum::AZURE_HYPERV, brand_enum::HYPERV_VPC, brand_enum::INVALID, brand_enum::AZURE_HYPERV },
+                { brand_enum::AZURE_HYPERV, brand_enum::HYPERV, brand_enum::NULL_BRAND, brand_enum::AZURE_HYPERV },
+                { brand_enum::AZURE_HYPERV, brand_enum::VPC, brand_enum::NULL_BRAND, brand_enum::AZURE_HYPERV },
+                { brand_enum::AZURE_HYPERV, brand_enum::HYPERV_VPC, brand_enum::NULL_BRAND, brand_enum::AZURE_HYPERV },
 
-                { brand_enum::QEMU, brand_enum::KVM, brand_enum::INVALID, brand_enum::QEMU_KVM },
-                { brand_enum::KVM, brand_enum::HYPERV, brand_enum::INVALID, brand_enum::KVM_HYPERV },
-                { brand_enum::QEMU, brand_enum::HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
-                { brand_enum::QEMU_KVM, brand_enum::HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::QEMU, brand_enum::KVM, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM },
+                { brand_enum::KVM, brand_enum::HYPERV, brand_enum::NULL_BRAND, brand_enum::KVM_HYPERV },
+                { brand_enum::QEMU, brand_enum::HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::QEMU_KVM, brand_enum::HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
 
-                { brand_enum::KVM, brand_enum::HYPERV_VPC, brand_enum::INVALID, brand_enum::KVM_HYPERV },
-                { brand_enum::QEMU, brand_enum::HYPERV_VPC, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
-                { brand_enum::QEMU_KVM, brand_enum::HYPERV_VPC, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::KVM, brand_enum::HYPERV_VPC, brand_enum::NULL_BRAND, brand_enum::KVM_HYPERV },
+                { brand_enum::QEMU, brand_enum::HYPERV_VPC, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::QEMU_KVM, brand_enum::HYPERV_VPC, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
 
-                { brand_enum::KVM, brand_enum::KVM_HYPERV, brand_enum::INVALID, brand_enum::KVM_HYPERV },
-                { brand_enum::QEMU, brand_enum::KVM_HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
-                { brand_enum::QEMU_KVM, brand_enum::KVM_HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::KVM, brand_enum::KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::KVM_HYPERV },
+                { brand_enum::QEMU, brand_enum::KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::QEMU_KVM, brand_enum::KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
 
-                { brand_enum::HYPERV_VPC, brand_enum::KVM_HYPERV, brand_enum::INVALID, brand_enum::KVM_HYPERV },
-                { brand_enum::HYPERV, brand_enum::KVM_HYPERV, brand_enum::INVALID, brand_enum::KVM_HYPERV },
-                { brand_enum::HYPERV_VPC, brand_enum::QEMU_KVM_HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
-                { brand_enum::HYPERV, brand_enum::QEMU_KVM_HYPERV, brand_enum::INVALID, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::HYPERV_VPC, brand_enum::KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::KVM_HYPERV },
+                { brand_enum::HYPERV, brand_enum::KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::KVM_HYPERV },
+                { brand_enum::HYPERV_VPC, brand_enum::QEMU_KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
+                { brand_enum::HYPERV, brand_enum::QEMU_KVM_HYPERV, brand_enum::NULL_BRAND, brand_enum::QEMU_KVM_HYPERV },
 
-                /* Triple merge */
+                /* Triple merge (retains third brand) */
                 { brand_enum::QEMU, brand_enum::KVM, brand_enum::KVM_HYPERV, brand_enum::QEMU_KVM_HYPERV },
 
                 /* VMware merges */
-                { brand_enum::VMWARE, brand_enum::VMWARE_FUSION, brand_enum::INVALID, brand_enum::VMWARE_FUSION },
-                { brand_enum::VMWARE, brand_enum::VMWARE_EXPRESS, brand_enum::INVALID, brand_enum::VMWARE_EXPRESS },
-                { brand_enum::VMWARE, brand_enum::VMWARE_ESX, brand_enum::INVALID, brand_enum::VMWARE_ESX },
-                { brand_enum::VMWARE, brand_enum::VMWARE_GSX, brand_enum::INVALID, brand_enum::VMWARE_GSX },
-                { brand_enum::VMWARE, brand_enum::VMWARE_WORKSTATION, brand_enum::INVALID, brand_enum::VMWARE_WORKSTATION },
+                { brand_enum::VMWARE, brand_enum::VMWARE_FUSION, brand_enum::NULL_BRAND, brand_enum::VMWARE_FUSION },
+                { brand_enum::VMWARE, brand_enum::VMWARE_EXPRESS, brand_enum::NULL_BRAND, brand_enum::VMWARE_EXPRESS },
+                { brand_enum::VMWARE, brand_enum::VMWARE_ESX, brand_enum::NULL_BRAND, brand_enum::VMWARE_ESX },
+                { brand_enum::VMWARE, brand_enum::VMWARE_GSX, brand_enum::NULL_BRAND, brand_enum::VMWARE_GSX },
+                { brand_enum::VMWARE, brand_enum::VMWARE_WORKSTATION, brand_enum::NULL_BRAND, brand_enum::VMWARE_WORKSTATION },
 
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE, brand_enum::INVALID, brand_enum::VMWARE_HARD },
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_FUSION, brand_enum::INVALID, brand_enum::VMWARE_HARD },
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_EXPRESS, brand_enum::INVALID, brand_enum::VMWARE_HARD },
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_ESX, brand_enum::INVALID, brand_enum::VMWARE_HARD },
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_GSX, brand_enum::INVALID, brand_enum::VMWARE_HARD },
-                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_WORKSTATION, brand_enum::INVALID, brand_enum::VMWARE_HARD }
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD },
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_FUSION, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD },
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_EXPRESS, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD },
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_ESX, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD },
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_GSX, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD },
+                { brand_enum::VMWARE_HARD, brand_enum::VMWARE_WORKSTATION, brand_enum::NULL_BRAND, brand_enum::VMWARE_HARD }
             };
 
             std::bitset<MAX_BRANDS> current_active = brand_hits;
@@ -5987,12 +6025,13 @@ public:
 
                 const bool a_hit = brand_hits.test(a_idx);
                 const bool b_hit = brand_hits.test(b_idx);
-                const bool c_hit = (rule.c == brand_enum::INVALID) || brand_hits.test(c_idx);
+
+                const bool c_hit = (rule.c == brand_enum::NULL_BRAND) || brand_hits.test(c_idx);
 
                 if (a_hit && b_hit && c_hit) {
                     current_active.reset(a_idx);
                     current_active.reset(b_idx);
-                    if (rule.c != brand_enum::INVALID) {
+                    if (rule.c != brand_enum::NULL_BRAND) {
                         current_active.reset(c_idx);
                     }
                     current_active.set(res_idx);
@@ -6023,7 +6062,6 @@ public:
 
         static VMAWARE_CONSTEXPR const char* brand_enum_to_string(const brand_enum brand) noexcept {
             switch (brand) {
-                case brand_enum::INVALID:               return "Invalid";
                 case brand_enum::VBOX:                  return VM::brands::VBOX;
                 case brand_enum::VMWARE:                return VM::brands::VMWARE;
                 case brand_enum::VMWARE_EXPRESS:        return VM::brands::VMWARE_EXPRESS;
@@ -7255,15 +7293,15 @@ public:
                 }
             }
 
-            size_t exc_valid = 0;
-            size_t exc_invalid = 0;
+            valid = 0;
+            invalid = 0;
 
             /* 
              * I choose #DB because it forces a L0 to L1 nested vmexit when Hyper-V is running
              * L0 must sync the exception bitmap with L1 in order for this to receive pending events, as the CPU always jumps to the hv running on the metal
              * VMCB/VMCS public dumps shows Hyper-V intercepts #DB, #AC and #MC
              */
-            while (exc_valid < batch_size && exc_invalid < local_max_attempts) {
+            while (valid < batch_size && invalid < local_max_attempts) {
                 timer::timer_tick_t db_pre, db_post, api_pre, api_post, sync;
 
                 sync = *counter_ptr;
@@ -7299,20 +7337,20 @@ public:
                 api_post = *counter_ptr;
 
                 if (api_post > api_pre && db_post > db_pre) {
-                    api_samples[exc_valid] = api_post - api_pre;
-                    db_samples[exc_valid] = db_post - db_pre;
-                    exc_valid++;
+                    api_samples[valid] = api_post - api_pre;
+                    db_samples[valid] = db_post - db_pre;
+                    valid++;
                 }
                 else {
-                    exc_invalid++;
+                    invalid++;
                 }
 
                 timer::engine::burn_random_cycles(ct_seed, api_post, db_post);
             }
 
-            if (exc_valid > 0) {
-                std::vector<timer::timer_tick_t> active_api_samples(api_samples.begin(), api_samples.begin() + exc_valid);
-                std::vector<timer::timer_tick_t> active_db_samples(db_samples.begin(), db_samples.begin() + exc_valid);
+            if (valid > 0) {
+                std::vector<timer::timer_tick_t> active_api_samples(api_samples.begin(), api_samples.begin() + valid);
+                std::vector<timer::timer_tick_t> active_db_samples(db_samples.begin(), db_samples.begin() + valid);
 
                 const timer::timer_tick_t api_l = timer::engine::calculate_latency(active_api_samples);
                 const timer::timer_tick_t db_l = timer::engine::calculate_latency(active_db_samples);
@@ -9371,40 +9409,61 @@ public:
                 continue;
             }
             const long file_size = statbuf.st_size;
-            if (file_size <= 0) {
-                debug("FIRMWARE: file empty or error ", entry->d_name);
-                continue;
-            }
-
-            if (file_size > MAX_TABLE_SIZE) {
-                debug("FIRMWARE: table too large, skipping ", entry->d_name);
-                continue;
-            }
-
-            const size_t file_size_u = static_cast<size_t>(file_size);
 
             std::vector<u8> buffer;
-            try {
-                buffer.resize(file_size_u);
-            }
-            catch (...) {
-                debug("FIRMWARE: failed to allocate memory for buffer");
-                continue;
-            }
+            size_t file_size_u = 0;
 
-            size_t total = 0;
-            while (total < file_size_u) {
-                const ssize_t n = read(fdguard.fd, buffer.data() + total, file_size_u - total);
-                if (n <= 0) {
-                    break;
+            if (file_size <= 0) {
+                constexpr size_t chunk_size = 4096;
+                u8 chunk[chunk_size];
+                while (true) {
+                    const ssize_t n = read(fdguard.fd, chunk, chunk_size);
+                    if (n < 0) {
+                        break;
+                    }
+                    if (n == 0) {
+                        break;
+                    }
+                    buffer.insert(buffer.end(), chunk, chunk + n);
+                    if (buffer.size() > MAX_TABLE_SIZE) {
+                        debug("FIRMWARE: table size exceeds maximum limit, truncating");
+                        break;
+                    }
+                }
+                file_size_u = buffer.size();
+                if (file_size_u == 0) {
+                    debug("FIRMWARE: file empty or read error ", entry->d_name);
+                    continue;
+                }
+            }
+            else {
+                if (file_size > MAX_TABLE_SIZE) {
+                    debug("FIRMWARE: table too large, skipping ", entry->d_name);
+                    continue;
                 }
 
-                total += static_cast<size_t>(n);
-            }
+                file_size_u = static_cast<size_t>(file_size);
+                try {
+                    buffer.resize(file_size_u);
+                }
+                catch (...) {
+                    debug("FIRMWARE: failed to allocate memory for buffer");
+                    continue;
+                }
 
-            if (total != file_size_u) {
-                debug("FIRMWARE: could not read full table ", entry->d_name);
-                continue;
+                size_t total = 0;
+                while (total < file_size_u) {
+                    const ssize_t n = read(fdguard.fd, buffer.data() + total, file_size_u - total);
+                    if (n <= 0) {
+                        break;
+                    }
+                    total += static_cast<size_t>(n);
+                }
+
+                if (total != file_size_u) {
+                    debug("FIRMWARE: could not read full table ", entry->d_name);
+                    continue;
+                }
             }
 
             if (scan_buffer(buffer.data(), file_size_u, true)) {
@@ -11274,25 +11333,28 @@ public:
             return false;
         }
 
-        for (ULONG i = 0; i < system_module_info_ex->NumberOfModules; ++i) {
-            const char* driverPath = reinterpret_cast<const char*>(system_module_info_ex->Module[i].ImageName);
+        const size_t max_modules = (ul_size - offsetof(_SYSTEM_MODULE_INFORMATION_EX, Module)) / sizeof(_SYSTEM_MODULE_INFORMATION);
+        const ULONG number_of_modules = (system_module_info_ex->NumberOfModules < max_modules) ? system_module_info_ex->NumberOfModules : static_cast<ULONG>(max_modules);
+
+        for (ULONG i = 0; i < number_of_modules; ++i) {
+            const char* driver_path = reinterpret_cast<const char*>(system_module_info_ex->Module[i].ImageName);
             if (
-                strstr(driverPath, "VBoxGuest") || /* only installed after vbox guest additions */
-                strstr(driverPath, "VBoxMouse") ||
-                strstr(driverPath, "VBoxSF")
+                strstr(driver_path, "VBoxGuest") || /* Only installed after vbox guest additions */
+                strstr(driver_path, "VBoxMouse") ||
+                strstr(driver_path, "VBoxSF")
                ) {
-                debug("DRIVERS: Detected VBox driver: ", driverPath);
+                debug("DRIVERS: Detected VBox driver: ", driver_path);
                 region_size = 0;
                 nt_free_virtual_memory(current_process, &allocated_memory, &region_size, MEM_RELEASE);
                 return core::add(brand_enum::VBOX);
             }
 
             if (
-                strstr(driverPath, "vmusbmouse") ||
-                strstr(driverPath, "vmmouse") ||
-                strstr(driverPath, "vmmemctl")
+                strstr(driver_path, "vmusbmouse") ||
+                strstr(driver_path, "vmmouse") ||
+                strstr(driver_path, "vmmemctl")
                ) {
-                debug("DRIVERS: Detected VMware driver: ", driverPath);
+                debug("DRIVERS: Detected VMware driver: ", driver_path);
                 region_size = 0;
                 nt_free_virtual_memory(current_process, &allocated_memory, &region_size, MEM_RELEASE);
                 return core::add(brand_enum::VMWARE);
@@ -14731,7 +14793,9 @@ public:
 
                 bool parse_error = false;
                 for (u32 i = 0; i < digest_count; ++i) {
-                    if (current_offset + local_offset > total_size || total_size - (current_offset + local_offset) < 2) {
+                    const size_t remaining_space = total_size - current_offset;
+
+                    if (local_offset > remaining_space || remaining_space - local_offset < 2) {
                         parse_error = true;
                         break;
                     }
@@ -14744,7 +14808,7 @@ public:
                         break;
                     }
 
-                    if (total_size - (current_offset + local_offset) < digest_size) {
+                    if (total_size - current_offset - local_offset < digest_size) {
                         parse_error = true;
                         break;
                     }
@@ -14755,13 +14819,13 @@ public:
                     break;
                 }
 
-                if (total_size - (current_offset + local_offset) < 4) {
+                if (total_size - current_offset - local_offset < 4) {
                     break;
                 }
                 const u32 event_size = read_u32(event_ptr + local_offset);
                 local_offset += 4;
 
-                if (total_size - (current_offset + local_offset) < event_size) {
+                if (total_size - current_offset - local_offset < event_size) {
                     break;
                 }
 
@@ -16548,9 +16612,8 @@ public:
             case brand_enum::BAREVISOR: return "Hypervisor (Type 1)";
             case brand_enum::HYPERPLATFORM: return "Hypervisor (Type 1)";
             case brand_enum::MINIVISOR: return "Hypervisor (Type 1)";
-            case brand_enum::HYPERV_ROOT: return "Host machine"; /* this refers to the type 1 hypervisor where Windows normally runs under, we put "Host machine" to clarify you're not running under a traditional VM if this is detected */
+            case brand_enum::HYPERV_ROOT: return "Host machine"; /* This refers to the type 1 hypervisor where Windows normally runs under, we put "Host machine" to clarify you're not running under a traditional VM if this is detected */
             case brand_enum::NULL_BRAND: return "Unknown";
-            case brand_enum::INVALID: return "Invalid";
         }
 
         return "Invalid";
