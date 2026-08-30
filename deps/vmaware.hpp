@@ -3659,17 +3659,18 @@ public:
             
             /*
              *  Golden Rules (must happen ALWAYS; if they don't happen the check should be aborted):
-             *  1. The check needs AT LEAST two different physical cores, so if one single core is detected, returns
-             *  2. The counter thread should always be in the middle available physical CPU when there's more than 2 cores, and in the core 2 (1-indexed) when there's 2 cores
-             *  3. The counter thread and the measurement thread can't never be in the same physical core. This means that SMT siblings should always be avoided.
+             *  1. The check needs AT LEAST two different physical cores, so if one single core is detected, returns {}
+             *  2. The counter thread should always be in the middle available physical CPU when there's more than 2 cores, and in core 2 (1-indexed) when there's 2 cores
+             *  3. The counter thread and the measurement thread can NEVER be in the same physical core (SMT siblings strictly excluded).
              *
              *  Silver Rules (in order of priority):
-             *  1. Prioritize higher-performance pipelines (P-cores) over efficiency-oriented pipelines (E-cores) for the measurement thread (+800). P-cores feature private L2 caches (no cluster controller congestion).
-             *  2. Prioritize candidates within the same NUMA node (+1000) and same L3 cache slice/CCD domain (+500) to ensure minimal latency (preventing cross-CCD Infinity Fabric or cross-socket routing delays).
-             *  3. Deduct points (-800) for candidate cores that share an L2 cache with the counter thread but reside on different physical cores (targeting and resolving Intel E-core cluster L2 controller bottlenecks).
-             *  4. Prioritize cores with matching efficiency classes (+100) to align power and frequency (DVFS) domains.
-             *  5. Apply a minor index-distance penalty to select the closest physical neighbor on the silicon layout/ring bus stop (best-effort only because logical indexing does not always prove physical proximity).
-             *  6. Penalize edge logical cores (-50) because those are where most OS interrupt and background DPC scheduler noise occur.
+             *  1. Same NUMA Node (+1000) & Same L3 Cache / CCD domain (+500) to ensure minimal interconnect & MESI invalidation latency.
+             *  2. Prioritize higher-performance pipelines (P-cores) over efficiency-oriented pipelines (E-cores) (+800) for dedicated L2 cache pipelines.
+             *  3. Deduct points (-800) for candidate cores that share an L2 cache cluster with the counter thread (targeting Intel E-core cluster bottlenecks).
+             *  4. Prioritize cores with matching efficiency classes (+100) to align DVFS frequency scaling domains.
+             *  5. Prefer Primary SMT thread (+20) over secondary hyperthread siblings.
+             *  6. Apply a minor index-distance penalty (-1 per logical distance) to select the closest neighbor on the ring bus.
+             *  7. Penalize edge logical cores and Physical Core 0 (-50) to avoid OS interrupt and DPC scheduler noise.
             */
             [[nodiscard]] static GROUP_AFFINITY get_mask(const bool measurement) {
                 const HANDLE current_process = reinterpret_cast<HANDLE>(-1LL);
@@ -3678,11 +3679,9 @@ public:
                 GROUP_AFFINITY active_group_aff{};
                 DWORD_PTR proc_mask = 0, sys_mask = 0;
 
-                /* Base our available CPU pool on the process-wide affinity mask instead of the thread's currently restricted affinity mask. Threads are frequently restricted to a single core by runtime schedulers or thread-pools, while the process retains access to all cores. */
                 if (GetProcessAffinityMask(current_process, &proc_mask, &sys_mask) && proc_mask) {
                     active_group_aff.Mask = proc_mask;
 
-                    /* Query the executing thread's current group to ensure both threads run on the same processor group/physical socket to avoid severe interconnect latency */
                     GROUP_AFFINITY thread_aff{};
                     if (GetThreadGroupAffinity(current_thread, &thread_aff)) {
                         active_group_aff.Group = thread_aff.Group;
@@ -3698,28 +3697,34 @@ public:
                 const WORD target_group = active_group_aff.Group;
                 const KAFFINITY target_mask = active_group_aff.Mask;
 
-                DWORD len = 0;
-                SetLastError(ERROR_SUCCESS);
-                GetLogicalProcessorInformationEx(RelationAll, nullptr, &len);
-                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !len) {
-                    return {};
-                }
+                alignas(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) BYTE stack_topo[4096]{};
+                DWORD len = sizeof(stack_topo);
 
-                std::vector<BYTE> topo(len);
-                if (!GetLogicalProcessorInformationEx(
-                    RelationAll,
-                    reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(topo.data()),
-                    &len)) {
-                    return {};
+                std::vector<BYTE> heap_topo;
+                PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX topo_ptr =
+                    reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(stack_topo);
+
+                if (!GetLogicalProcessorInformationEx(RelationAll, topo_ptr, &len)) {
+                    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && len > sizeof(stack_topo)) {
+                        heap_topo.resize(len);
+                        topo_ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(heap_topo.data());
+                        if (!GetLogicalProcessorInformationEx(RelationAll, topo_ptr, &len)) {
+                            return {};
+                        }
+                    }
+                    else {
+                        return {};
+                    }
                 }
 
                 struct GroupCpu {
-                    DWORD LogicalId = 0xFFFFFFFFu; /* 0..63 within target group */
+                    DWORD LogicalId = 0xFFFFFFFFu;
                     DWORD CoreId = 0xFFFFFFFFu;
                     DWORD NumaNode = 0xFFFFFFFFu;
                     DWORD L2CacheId = 0xFFFFFFFFu;
                     DWORD L3CacheId = 0xFFFFFFFFu;
-                    BYTE EfficiencyClass = 0;
+                    BYTE  EfficiencyClass = 0;
+                    bool  IsPrimarySmt = false;
                 };
 
                 GroupCpu group_cpus[64]{};
@@ -3742,31 +3747,30 @@ public:
                 size_t offset = 0;
 
                 while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= len) {
-                    auto* ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(topo.data() + offset);
+                    auto* ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
+                        reinterpret_cast<BYTE*>(topo_ptr) + offset
+                    );
 
-                    constexpr size_t base_header_size = sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD);
-                    if (ptr->Size < base_header_size || offset + ptr->Size > len) {
+                    if (ptr->Size < sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD) || offset + ptr->Size > len) {
                         return {};
                     }
 
                     switch (ptr->Relationship) {
                     case RelationProcessorCore: {
-                        const size_t expected_size = offsetof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor.GroupMask) + (ptr->Processor.GroupCount * sizeof(GROUP_AFFINITY));
-                        if (ptr->Size < expected_size) {
-                            return {};
-                        }
-
                         const DWORD core_id = core_count++;
                         const BYTE efficiency = ptr->Processor.EfficiencyClass;
 
                         for (DWORD g = 0; g < ptr->Processor.GroupCount; ++g) {
                             if (ptr->Processor.GroupMask[g].Group == target_group) {
                                 const KAFFINITY mask = ptr->Processor.GroupMask[g].Mask;
+                                bool first_smt = true;
                                 for (DWORD bit = 0; bit < 64; ++bit) {
                                     if (mask & (1ull << bit)) {
                                         if (group_cpus[bit].LogicalId != 0xFFFFFFFFu) {
                                             group_cpus[bit].CoreId = core_id;
                                             group_cpus[bit].EfficiencyClass = efficiency;
+                                            group_cpus[bit].IsPrimarySmt = first_smt;
+                                            first_smt = false;
                                         }
                                     }
                                 }
@@ -3777,12 +3781,19 @@ public:
 
                     case RelationNumaNode: {
                         const DWORD node_id = ptr->NumaNode.NodeNumber;
-                        if (ptr->NumaNode.GroupMask.Group == target_group) {
-                            const KAFFINITY mask = ptr->NumaNode.GroupMask.Mask;
-                            for (DWORD bit = 0; bit < 64; ++bit) {
-                                if (mask & (1ull << bit)) {
-                                    if (group_cpus[bit].LogicalId != 0xFFFFFFFFu) {
-                                        group_cpus[bit].NumaNode = node_id;
+                        const WORD g_count = (ptr->NumaNode.GroupCount > 0) ? ptr->NumaNode.GroupCount : 1;
+                        for (WORD g = 0; g < g_count; ++g) {
+                            const GROUP_AFFINITY& g_aff = (ptr->NumaNode.GroupCount > 1)
+                                ? ptr->NumaNode.GroupMasks[g]
+                                : ptr->NumaNode.GroupMask;
+
+                            if (g_aff.Group == target_group) {
+                                const KAFFINITY mask = g_aff.Mask;
+                                for (DWORD bit = 0; bit < 64; ++bit) {
+                                    if (mask & (1ull << bit)) {
+                                        if (group_cpus[bit].LogicalId != 0xFFFFFFFFu) {
+                                            group_cpus[bit].NumaNode = node_id;
+                                        }
                                     }
                                 }
                             }
@@ -3791,16 +3802,10 @@ public:
                     }
 
                     case RelationCache: {
-                        const size_t expected_size = offsetof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Cache.GroupMasks) + (ptr->Cache.GroupCount * sizeof(GROUP_AFFINITY));
-                        if (ptr->Size < expected_size) {
-                            return {};
-                        }
-
-                        const WORD group_count_cache = ptr->Cache.GroupCount;
+                        const WORD group_count_cache = (ptr->Cache.GroupCount > 0) ? ptr->Cache.GroupCount : 1;
                         const DWORD cache_id = cache_count++;
 
                         for (WORD g = 0; g < group_count_cache; ++g) {
-                            /* Read and check all GroupMasks entries, supporting multi-group caches */
                             const GROUP_AFFINITY& g_aff = ptr->Cache.GroupMasks[g];
                             if (g_aff.Group == target_group) {
                                 const KAFFINITY mask = g_aff.Mask;
@@ -3828,34 +3833,18 @@ public:
                     offset += ptr->Size;
                 }
 
-                /* Golden Rule 1: At least two physical cores must exist in the allowed process affinity */
-                bool seen_core[256]{};
-                DWORD physical_cores = 0;
+                /* Golden Rule 1: At least two physical cores must exist */
+                DWORD unique_cores[64]{};
+                DWORD unique_cores_count = 0;
+                DWORD core_to_primary_logical[64]{};
 
                 for (DWORD i = 0; i < active_cpu_count; ++i) {
                     const DWORD log = idxs[i];
                     const DWORD core = group_cpus[log].CoreId;
+
                     if (core == 0xFFFFFFFFu) {
                         return {};
                     }
-                    if (core < 256 && !seen_core[core]) {
-                        seen_core[core] = true;
-                        ++physical_cores;
-                    }
-                }
-
-                if (physical_cores < 2) {
-                    return {};
-                }
-
-                /* Golden Rule 2: Counter thread always in the middle available physical CPU (or 2nd core if exactly 2) */
-                DWORD unique_cores[256]{};
-                DWORD unique_cores_count = 0;
-                DWORD core_to_logical[256]{};
-
-                for (DWORD i = 0; i < active_cpu_count; ++i) {
-                    const DWORD log = idxs[i];
-                    const DWORD core = group_cpus[log].CoreId;
 
                     bool already_seen = false;
                     for (DWORD c = 0; c < unique_cores_count; ++c) {
@@ -3864,31 +3853,24 @@ public:
                             break;
                         }
                     }
-                    if (!already_seen) {
-                        if (unique_cores_count < 64) {
-                            unique_cores[unique_cores_count] = core;
-                            core_to_logical[unique_cores_count] = log;
-                            unique_cores_count++;
-                        }
-                        else {
-                            break;
-                        }
+
+                    if (!already_seen && unique_cores_count < 64) {
+                        unique_cores[unique_cores_count] = core;
+                        core_to_primary_logical[unique_cores_count] = log;
+                        unique_cores_count++;
                     }
                 }
 
                 if (unique_cores_count < 2) {
-                    return {};
+                    return {}; /* Single physical core(e.g. 1 core with SMT enabled) */
                 }
 
-                const DWORD counter_pos0 = (unique_cores_count == 2) ? 1u : (unique_cores_count / 2u);
-                if (counter_pos0 >= unique_cores_count) {
-                    return {};
-                }
-
-                const DWORD counter_logical = core_to_logical[counter_pos0];
+                /* Golden Rule 2: Counter thread always in middle physical core(or core index 1 if exactly 2 cores) */
+                const DWORD counter_pos = (unique_cores_count == 2) ? 1u : (unique_cores_count / 2u);
+                const DWORD counter_logical = core_to_primary_logical[counter_pos];
                 const auto& counter_cpu = group_cpus[counter_logical];
 
-                if (counter_cpu.CoreId == 0xFFFFFFFFu || counter_cpu.NumaNode == 0xFFFFFFFFu) {
+                if (counter_cpu.CoreId == 0xFFFFFFFFu) {
                     return {};
                 }
 
@@ -3899,18 +3881,17 @@ public:
                     return aff;
                 }
 
-                /* Silver Rule 2: Find performance-dominant type within the process affinity subset */
                 BYTE max_efficiency = 0;
                 for (DWORD i = 0; i < active_cpu_count; ++i) {
-                    const DWORD logical = idxs[i];
-                    if (group_cpus[logical].EfficiencyClass > max_efficiency) {
-                        max_efficiency = group_cpus[logical].EfficiencyClass;
+                    const DWORD log = idxs[i];
+                    if (group_cpus[log].EfficiencyClass > max_efficiency) {
+                        max_efficiency = group_cpus[log].EfficiencyClass;
                     }
                 }
 
-                auto is_edge = [&](DWORD logical) noexcept -> bool {
-                    return logical == idxs[0] || logical == idxs[active_cpu_count - 1];
-                };
+                const DWORD core0_id = group_cpus[idxs[0]].CoreId;
+                const DWORD first_idx = idxs[0];
+                const DWORD last_idx = idxs[active_cpu_count - 1];
 
                 DWORD best_logical = 0xFFFFFFFFu;
                 int best_score = (std::numeric_limits<int>::min)();
@@ -3923,44 +3904,49 @@ public:
 
                     const auto& cand_cpu = group_cpus[logical];
 
-                    /* Silver Rule 1: SMT Sibling Isolation */
+                    /* Golden Rule 3: Never share physical core with counter thread (exclude SMT siblings) */
                     if (cand_cpu.CoreId == counter_cpu.CoreId) {
                         continue;
                     }
 
                     int score = 0;
 
-                    /* Silver Rule 3: Same NUMA Node alignment */
+                    /* Silver Rule 1: Same NUMA Node alignment (avoids cross-socket interconnect latency) */
                     if (cand_cpu.NumaNode != 0xFFFFFFFFu && cand_cpu.NumaNode == counter_cpu.NumaNode) {
                         score += 1000;
                     }
 
-                    /* Silver Rule 3: Same L3 Cache Domain alignment */
+                    /* Silver Rule 1: Same L3 Cache Slice / CCD Domain (avoids AMD Infinity Fabric cross-CCD hops) */
                     if (cand_cpu.L3CacheId != 0xFFFFFFFFu && cand_cpu.L3CacheId == counter_cpu.L3CacheId) {
                         score += 500;
                     }
 
-                    /* Silver Rule 2: Performance Core (P-Core) Priority */
+                    /* Silver Rule 2: Performance Core priority */
                     if (cand_cpu.EfficiencyClass == max_efficiency) {
                         score += 800;
                     }
 
-                    /* Silver Rule 4: Shared L2 Cache Cluster Penalty (avoids shared E-core controllers) */
+                    /* Silver Rule 3: Shared L2 Cluster Penalty (avoids shared E-core 4-core cluster controllers) */
                     if (cand_cpu.L2CacheId != 0xFFFFFFFFu && cand_cpu.L2CacheId == counter_cpu.L2CacheId) {
                         score -= 800;
                     }
 
-                    /* Silver Rule 5: Same Core Type alignment. The counter can actually be in a E-Core and the trigger in a P-Core safely, that's why I put a lower score */
+                    /* Silver Rule 4: Same Core Type / DVFS Domain alignment */
                     if (cand_cpu.EfficiencyClass == counter_cpu.EfficiencyClass) {
                         score += 100;
                     }
 
-                    /* Silver Rule 6: Physical Proximity Penalty */
+                    /* Silver Rule 5: Primary SMT Thread Bonus */
+                    if (cand_cpu.IsPrimarySmt) {
+                        score += 20;
+                    }
+
+                    /* Silver Rule 6: Silicon Ring Bus distance penalty */
                     const int dist = static_cast<int>(logical) - static_cast<int>(counter_logical);
                     score -= std::abs(dist);
 
-                    /* Silver Rule 7: Edge Core Protection */
-                    if (is_edge(logical)) {
+                    /* Silver Rule 7: Edge logical cores & Physical Core 0 Interrupt/DPC noise penalty */
+                    if (logical == first_idx || logical == last_idx || cand_cpu.CoreId == core0_id) {
                         score -= 50;
                     }
 
@@ -3984,7 +3970,7 @@ public:
         };
 
         struct engine {
-                VMAWARE_SERIALIZE static VMAWARE_FORCE_INLINE void warmup_cpu(const bool serialize_available) noexcept {
+             VMAWARE_SERIALIZE static VMAWARE_FORCE_INLINE void warmup_cpu(const bool serialize_available) noexcept {
                 /* Signal Intel Speed Shift / AMD CPPC to force maximum non-AVX Turbo/P-state frequency transition */
                 u64 val = 0x5a5a5a5a5a5a5a5aULL;
                 for (u32 i = 0; i < 2'000'000; ++i) {
@@ -4006,7 +3992,7 @@ public:
                         std::atomic_signal_fence(std::memory_order_seq_cst);
                     }
                 }
-            }
+             }
 
             [[nodiscard]] static timer_tick_t calculate_latency(const std::vector<timer_tick_t>& samples_in) {
                 if (samples_in.empty()) {
@@ -6903,7 +6889,7 @@ public:
 
 
     /**
-     * @brief Check for hypervisor overhead by measuring instruction and memory latency
+     * @brief Check for hypervisor overhead by measuring instruction and exception latency
      * @category Windows, x86
      * @implements VM::TIMER
      */
@@ -7389,21 +7375,11 @@ public:
             const double exception_ratio = best_db_l ? (double)best_db_l / (double)best_api_l : 0.0;
             debug("TIMER: Exception > VMM -> ", best_db_l, " | nVMM -> ", best_api_l, " | Ratio -> ", exception_ratio);
 
-            if (exception_ratio >= 4.0) {
+            if (exception_ratio >= 2.5) {
                 debug("TIMER: Detected #DB interception latency");
                 debug("TIMER: If you have #DB interception disabled, it means you're running under nested");
                 hypervisor_detected = true;
             }
-        }
-        else {
-            /* 
-             * The only way for this situation to occur is if the measurement and the counter runs in the same physical core
-             * VMAware will never choose the same physical core to run two threads simultaneously, because its able to detect SMT siblings
-             * If there's no single valid reference, it means that the two threads were running in the same physical core, even if the kernel (and thus, VMAware) believes they were on different cores 
-             * This is proof that there's another OS scheduler running on top of the current guest OS
-             */
-            debug("TIMER: Detected hypervisor with no 1:1 vCPU pinning (timing desynchronization)");
-            hypervisor_detected = true;
         }
 
         SetThreadPriorityBoost(current_thread, FALSE);
@@ -13257,58 +13233,6 @@ public:
             }
         }
 
-        const bool rdrand_support = ((c >> 30) & 1u) != 0;
-
-        auto is_rdrand_spoofed = [&]() noexcept -> bool {
-        #if (MSVC) && !(CLANG)
-            unsigned int v = 0;
-
-            __try {
-                const int ok = _rdrand32_step(&v);
-                if (ok && !rdrand_support) {
-                    debug("CPU_HEURISTIC: Hypervisor detected hiding RDRAND capabilities");
-                    return true;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                if (rdrand_support) {
-                    debug("CPU_HEURISTIC: Hypervisor did not handle RDRAND correctly");
-                    return true;
-                }
-            }
-        #else
-            unsigned int v = 0;
-            unsigned char ok = 0;
-
-            __try {
-                asm volatile("rdrand %0\n\tsetc %1"
-                    : "=r"(v), "=qm"(ok)
-                    :
-                    : "cc"
-                );
-
-                if (ok && !rdrand_support) {
-                    debug("CPU_HEURISTIC: Hypervisor detected hiding RDRAND capabilities");
-                    return true;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                if (rdrand_support) {
-                    debug("CPU_HEURISTIC: Hypervisor did not handle RDRAND correctly");
-                    return true;
-                }
-            }
-        #endif
-
-            return false;
-        };
-
-        if (!is_spoofed) {
-            if (is_rdrand_spoofed()) {
-                is_spoofed = true;
-            }
-        }
-
         if (old_affinity != 0) {
             SetThreadAffinityMask(current_thread, old_affinity);
         }
@@ -13528,190 +13452,84 @@ public:
             return spoofed;
         }
 
-        /*
-         * Ok so if the CPU is intel, the motherboard should be intel aswell (and same with AMD)
-         * this doesnt happen in most public hardened configs out there so lets abuse it
-         */
-        static constexpr unsigned int VID_INTEL = 0x8086;
-        static constexpr unsigned int VID_AMD_ATI = 0x1002;
-        static constexpr unsigned int VID_AMD_MICRO = 0x1022;
+        /* So if the CPU is Intel, the motherboard should be Intel aswell (and same with AMD) */
+        static constexpr u32 VID_INTEL = 0x8086;
+        static constexpr u32 VID_AMD_MICRO = 0x1022; /* AMD Core Motherboard / Chipset / Root Complex / PSP */
+        static constexpr u32 VID_AMD_ATI = 0x1002; /* AMD / ATI Graphics & legacy display controllers */
 
         enum class motherboard_vendor { Unknown = 0, Intel = 1, AMD = 2 };
 
         auto detect_motherboard = []() noexcept -> motherboard_vendor {
-            static constexpr const wchar_t* TOKENS[] = {
-                L"host bridge", L"northbridge", L"southbridge", L"pci bridge", L"chipset", L"pch", L"fch",
-                L"platform controller", L"lpc", L"sata controller", L"ahci", L"ide controller", L"usb controller",
-                L"xhci", L"usb3", L"usb 3.0", L"usb 3", L"pcie root", L"pci express", L" sata", nullptr
-            };
+            HDEVINFO handle_dev_info = SetupDiGetClassDevsW(
+                nullptr,
+                L"PCI",
+                nullptr,
+                DIGCF_ALLCLASSES | DIGCF_PRESENT
+            );
 
-            auto contains_token = [](const wchar_t* haystack) noexcept -> bool {
-                if (!haystack) {
-                    return false;
-                }
+            if (handle_dev_info == INVALID_HANDLE_VALUE) {
+                return motherboard_vendor::Unknown;
+            }
 
-                for (const wchar_t* const* t = TOKENS; *t; ++t) {
-                    const wchar_t* needle = *t;
-                    const wchar_t* h = haystack;
-
-                    /* Naive scan is faster than BM/KMP for very short needles/haystacks */
-                    while (*h) {
-                        const wchar_t* h_iter = h;
-                        const wchar_t* n_iter = needle;
-
-                        while (*n_iter) {
-                            wchar_t hc = *h_iter;
-                            if (hc >= L'A' && hc <= L'Z') {
-                                hc += 32;
-                            }
-                            if (hc != *n_iter) {
-                                break;
-                            }
-
-                            h_iter++;
-                            n_iter++;
-                        }
-
-                        if (!*n_iter) {
-                            return true;
-                        }
-                        h++;
+            auto parse_hex4 = [](const wchar_t* p) noexcept -> u32 {
+                u32 val = 0;
+                for (int i = 0; i < 4; ++i) {
+                    const wchar_t c = p[i];
+                    u32 nib;
+                    if (c >= L'0' && c <= L'9') {
+                        nib = static_cast<u32>(c - L'0');
                     }
-                }
-
-                return false;
-            };
-
-            auto find_vendor_hex = [](const wchar_t* wptr) noexcept -> u32 {
-                if (!wptr) {
-                    return 0;
-                }
-
-                const wchar_t* p = wptr;
-                while (*p) {
-                    /* Check for "VEN_" (case-insensitive) */
-                    if (p[0] != L'\0' && p[1] != L'\0' && p[2] != L'\0' && p[3] != L'\0') {
-                        if (((p[0] | 0x20) == L'v') &&
-                            ((p[1] | 0x20) == L'e') &&
-                            ((p[2] | 0x20) == L'n') &&
-                            (p[3] == L'_')) {
-
-                            const wchar_t* q = p + 4;
-                            u32 val = 0;
-                            int got = 0;
-
-                            while (got < 4 && *q) {
-                                const wchar_t c = *q;
-                                u32 nib = 0;
-                                if (c >= L'0' && c <= L'9') {
-                                    nib = static_cast<u32>(c - L'0');
-                                }
-                                else if ((c | 0x20) >= L'a' && (c | 0x20) <= L'f') {
-                                    nib = static_cast<u32>((c | 0x20) - L'a' + 10);
-                                }
-                                else {
-                                    break;
-                                }
-
-                                val = (val << 4) | nib;
-                                ++got; ++q;
-                            }
-
-                            if (got == 4) {
-                                return val;
-                            }
-                        }
+                    else if ((c | 0x20) >= L'a' && (c | 0x20) <= L'f') {
+                        nib = static_cast<u32>((c | 0x20) - L'a' + 10);
                     }
-                    ++p;
+                    else {
+                        return 0;
+                    }
+                    val = (val << 4) | nib;
                 }
-
-                return 0;
+                return val;
             };
 
-            /* SetupAPI stuff */
+            SP_DEVINFO_DATA dev_info_data{};
+            dev_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
+
+            wchar_t instance_id[256];
             int intel_hits = 0;
             int amd_hits = 0;
 
-            wchar_t stack_buf[1024]{};
-            stack_buf[ARRAYSIZE(stack_buf) - 1] = L'\0';
-            std::vector<BYTE> heap_buf; /* fallback for rare huge strings */
-            heap_buf.push_back(0);
+            for (DWORD i = 0; SetupDiEnumDeviceInfo(handle_dev_info, i, &dev_info_data); ++i) {
+                if (SetupDiGetDeviceInstanceIdW(handle_dev_info, &dev_info_data, instance_id, ARRAYSIZE(instance_id), nullptr)) {
+                    if (((instance_id[0] | 0x20) == L'p') &&
+                        ((instance_id[1] | 0x20) == L'c') &&
+                        ((instance_id[2] | 0x20) == L'i') &&
+                        (instance_id[3] == L'\\') &&
+                        ((instance_id[4] | 0x20) == L'v') &&
+                        ((instance_id[5] | 0x20) == L'e') &&
+                        ((instance_id[6] | 0x20) == L'n') &&
+                        (instance_id[7] == L'_')) {
 
-            auto scan_devices = [&](const GUID* classGuid, DWORD flags) noexcept {
-                HDEVINFO handle_dev_info = SetupDiGetClassDevsW(classGuid, nullptr, nullptr, flags);
-                if (handle_dev_info == INVALID_HANDLE_VALUE) {
-                    return;
-                }
-
-                SP_DEVINFO_DATA dev_info_data{};
-                dev_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
-
-                for (DWORD i = 0; SetupDiEnumDeviceInfo(handle_dev_info, i, &dev_info_data); ++i) {
-                    const wchar_t* w_desc = nullptr;
-                    DWORD req_size = 0;
-                    DWORD prop_type = 0;
-
-                    if (SetupDiGetDeviceRegistryPropertyW(handle_dev_info, &dev_info_data, SPDRP_DEVICEDESC, &prop_type, reinterpret_cast<PBYTE>(stack_buf), sizeof(stack_buf), &req_size)) {
-                        w_desc = stack_buf;
-                    }
-                    else if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-                        if (heap_buf.size() < req_size) {
-                            heap_buf.resize(req_size);
+                        const u32 vid = parse_hex4(instance_id + 8);
+                        if (vid == VID_INTEL) {
+                            intel_hits++;
                         }
-                        if (SetupDiGetDeviceRegistryPropertyW(handle_dev_info, &dev_info_data, SPDRP_DEVICEDESC, &prop_type, heap_buf.data(), req_size, nullptr)) {
-                            w_desc = reinterpret_cast<const wchar_t*>(heap_buf.data());
+                        else if (vid == VID_AMD_MICRO) {
+                            amd_hits += 2;
                         }
-                    }
-
-                    /* Check if the description contains any interesting stuff */
-                    if (w_desc && contains_token(w_desc)) {
-                        /* If interesting get hwid to get vendor */
-                        const wchar_t* w_hardware_id = nullptr;
-
-                        if (SetupDiGetDeviceRegistryPropertyW(handle_dev_info, &dev_info_data, SPDRP_HARDWAREID, &prop_type, reinterpret_cast<PBYTE>(stack_buf), sizeof(stack_buf), &req_size)) {
-                            w_hardware_id = stack_buf;
-                        }
-                        else if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-                            if (heap_buf.size() < req_size) heap_buf.resize(req_size);
-                            if (SetupDiGetDeviceRegistryPropertyW(handle_dev_info, &dev_info_data, SPDRP_HARDWAREID, &prop_type, heap_buf.data(), req_size, nullptr)) {
-                                w_hardware_id = reinterpret_cast<const wchar_t*>(heap_buf.data());
-                            }
-                        }
-
-                        if (w_hardware_id) {
-                            const u32 vid = find_vendor_hex(w_hardware_id);
-                            if (vid == VID_INTEL) {
-                                intel_hits++;
-                            }
-                            else if (vid == VID_AMD_ATI || vid == VID_AMD_MICRO) {
-                                amd_hits++;
-                            }
+                        else if (vid == VID_AMD_ATI) {
+                            amd_hits += 1;
                         }
                     }
                 }
-                SetupDiDestroyDeviceInfoList(handle_dev_info);
-            };
-
-            /*
-             * GUID_DEVCLASS_SYSTEM covers Host Bridges, LPC, PCI bridges Chipset/CPU etc
-             * GUID_DEVCLASS_USB covers USB controller stuff
-             * GUID_DEVCLASS_HDC covers SATA/IDE
-             */
-            const GUID* interesting_classes[] = {
-                &GUID_DEVCLASS_SYSTEM,
-                &GUID_DEVCLASS_USB,
-                &GUID_DEVCLASS_HDC
-            };
-
-            for (const GUID* guid : interesting_classes) {
-                scan_devices(guid, DIGCF_PRESENT);
             }
 
-            /* If no stuff then maybe query all devices in the system with DIGCF_ALLCLASSES | DIGCF_PRESENT? */
-            if (intel_hits > amd_hits) {
+            SetupDiDestroyDeviceInfoList(handle_dev_info);
+
+            /* Motherboard chipsets provide 10-40+ integrated PCI devices */
+            /* Add-in cards (like Intel Wi-Fi on AMD board, or AMD GPU on Intel board) should only provide like 1-3 devices */
+            if (intel_hits >= 3 && intel_hits > amd_hits * 2) {
                 return motherboard_vendor::Intel;
             }
-            if (amd_hits > intel_hits) {
+            if (amd_hits >= 3 && amd_hits > intel_hits * 2) {
                 return motherboard_vendor::AMD;
             }
 
@@ -13721,23 +13539,23 @@ public:
         const motherboard_vendor vendor = detect_motherboard();
 
         switch (vendor) {
-            case motherboard_vendor::Intel:
-                if (claimed_amd && !claimed_intel) {
-                    debug("CPU_HEURISTIC: CPU reports AMD but chipset looks Intel");
-                    spoofed = true;
-                }
-                break;
-            case motherboard_vendor::AMD:
-                if (claimed_intel && !claimed_amd) {
-                    debug("CPU_HEURISTIC: CPU reports Intel but chipset looks AMD");
-                    spoofed = true;
-                }
-                break;
-            case motherboard_vendor::Unknown:
-                debug("CPU_HEURISTIC: Could not determine chipset vendor");
-                break;
-            default:
-                VMAWARE_ASSUME(0);
+        case motherboard_vendor::Intel:
+            if (claimed_amd && !claimed_intel) {
+                debug("CPU_HEURISTIC: CPU reports AMD but chipset looks Intel");
+                spoofed = true;
+            }
+            break;
+        case motherboard_vendor::AMD:
+            if (claimed_intel && !claimed_amd) {
+                debug("CPU_HEURISTIC: CPU reports Intel but chipset looks AMD");
+                spoofed = true;
+            }
+            break;
+        case motherboard_vendor::Unknown:
+            debug("CPU_HEURISTIC: Could not determine chipset vendor");
+            break;
+        default:
+            VMAWARE_ASSUME(0);
         }
     #endif
         return spoofed;
