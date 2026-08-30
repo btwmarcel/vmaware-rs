@@ -5,7 +5,7 @@ fn main() {
     build
         .cpp(true)
         .include("deps")
-        .include("src") 
+        .include("src")
         .file("src/wrapper.cpp");
 
     build.flag_if_supported("-std=c++20");
@@ -16,7 +16,7 @@ fn main() {
         .header("deps/vmaware.hpp")
         .clang_arg("-x")
         .clang_arg("c++")
-        .clang_arg("-std=c++20") 
+        .clang_arg("-std=c++20")
         .allowlist_type("VM_enum_flags")
         .allowlist_type("VM_brand_enum")
         .allowlist_var("VM_technique_count")
@@ -25,10 +25,10 @@ fn main() {
         .generate()
         .expect("bindgen failed to generate bindings");
 
-    let out_dir = std::env::var("OUT_DIR")
-        .expect("OUT_DIR environment variable is not set by Cargo");
+    let out_dir =
+        std::env::var("OUT_DIR").expect("OUT_DIR environment variable is not set by Cargo");
     let out_path = std::path::PathBuf::from(out_dir);
-    
+
     bindings
         .write_to_file(out_path.join("flags_bindgen.rs"))
         .expect("Failed to write flags_bindgen.rs");

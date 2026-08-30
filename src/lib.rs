@@ -122,12 +122,15 @@ unsafe fn take_ffi_string(ptr: *mut c_char) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
-        let s = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+        let s = unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
         unsafe { free_string(ptr) };
         Some(s)
     }
 }
 
+/// Detect if running inside a VM
 pub fn detect() -> Result<bool, VmawareError> {
     let mut out = false;
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -135,7 +138,7 @@ pub fn detect() -> Result<bool, VmawareError> {
     let ok = unsafe { vmaware_detect(&mut out, &mut err) };
 
     if ok {
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
         Ok(out)
     } else {
         match unsafe { take_ffi_string(err) } {
@@ -145,6 +148,7 @@ pub fn detect() -> Result<bool, VmawareError> {
     }
 }
 
+/// Fetch the VM type
 pub fn vm_type() -> Result<VmType, VmawareError> {
     let mut out: *mut c_char = std::ptr::null_mut();
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -153,14 +157,14 @@ pub fn vm_type() -> Result<VmType, VmawareError> {
 
     if ok {
         let value = unsafe { take_ffi_string(out) };
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
 
         match value {
             Some(val) => Ok(VmType::from(val)),
             None => Err(VmawareError::Unknown),
         }
     } else {
-        unsafe { take_ffi_string(out) }; 
+        unsafe { take_ffi_string(out) };
         match unsafe { take_ffi_string(err) } {
             Some(e) => Err(VmawareError::Ffi(e)),
             None => Err(VmawareError::Unknown),
@@ -168,6 +172,7 @@ pub fn vm_type() -> Result<VmType, VmawareError> {
     }
 }
 
+/// Check for a specific technique based on flag argument
 pub fn check(flag: flags) -> Result<bool, VmawareError> {
     let mut out: bool = false;
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -175,7 +180,7 @@ pub fn check(flag: flags) -> Result<bool, VmawareError> {
     let ok = unsafe { vmaware_check(flag as u8, &mut out, &mut err) };
 
     if ok {
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
         Ok(out)
     } else {
         match unsafe { take_ffi_string(err) } {
@@ -185,6 +190,7 @@ pub fn check(flag: flags) -> Result<bool, VmawareError> {
     }
 }
 
+/// Get the percentage of how likely it's a VM
 pub fn percentage() -> Result<u8, VmawareError> {
     let mut out: u8 = 0;
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -192,7 +198,7 @@ pub fn percentage() -> Result<u8, VmawareError> {
     let ok = unsafe { vmaware_percentage(&mut out, &mut err) };
 
     if ok {
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
         Ok(out)
     } else {
         match unsafe { take_ffi_string(err) } {
@@ -202,6 +208,7 @@ pub fn percentage() -> Result<u8, VmawareError> {
     }
 }
 
+/// Fetch the conclusion message based on the brand and percentage
 pub fn conclusion() -> Result<String, VmawareError> {
     let mut out: *mut c_char = std::ptr::null_mut();
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -210,14 +217,14 @@ pub fn conclusion() -> Result<String, VmawareError> {
 
     if ok {
         let value = unsafe { take_ffi_string(out) };
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
 
         match value {
             Some(val) => Ok(val),
             None => Err(VmawareError::Unknown),
         }
     } else {
-        unsafe { take_ffi_string(out) }; 
+        unsafe { take_ffi_string(out) };
         match unsafe { take_ffi_string(err) } {
             Some(e) => Err(VmawareError::Ffi(e)),
             None => Err(VmawareError::Unknown),
@@ -225,6 +232,7 @@ pub fn conclusion() -> Result<String, VmawareError> {
     }
 }
 
+/// Fetch the total number of detected techniques
 pub fn detected_count() -> Result<u8, VmawareError> {
     let mut out: u8 = 0;
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -242,6 +250,7 @@ pub fn detected_count() -> Result<u8, VmawareError> {
     }
 }
 
+/// Fetch the VM brand
 pub fn brand() -> Result<String, VmawareError> {
     let mut out: *mut c_char = std::ptr::null_mut();
     let mut err: *mut c_char = std::ptr::null_mut();
@@ -250,14 +259,14 @@ pub fn brand() -> Result<String, VmawareError> {
 
     if ok {
         let value = unsafe { take_ffi_string(out) };
-        unsafe { take_ffi_string(err) }; 
+        unsafe { take_ffi_string(err) };
 
         match value {
             Some(val) => Ok(val),
             None => Err(VmawareError::Unknown),
         }
     } else {
-        unsafe { take_ffi_string(out) }; 
+        unsafe { take_ffi_string(out) };
         match unsafe { take_ffi_string(err) } {
             Some(e) => Err(VmawareError::Ffi(e)),
             None => Err(VmawareError::Unknown),
@@ -270,5 +279,5 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/flags_bindgen.rs"));
 }
 
-pub use bindings::VM_enum_flags as flags;
 pub use bindings::VM_brand_enum as brands;
+pub use bindings::VM_enum_flags as flags;

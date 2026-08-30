@@ -1,4 +1,4 @@
-use vmaware::{detect, brand, vm_type, conclusion, percentage, detected_count, check, flags};
+use vmaware::{brand, check, conclusion, detect, detected_count, flags, percentage, vm_type};
 
 fn main() -> Result<(), vmaware::VmawareError> {
     println!("is vm: {}", detect()?);
