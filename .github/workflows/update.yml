@@ -1,4 +1,4 @@
-name: Sync VMAware header and create release branches
+name: Sync VMAware header
 
 on:
   schedule:
@@ -26,16 +26,6 @@ jobs:
           tag=$(curl -s https://api.github.com/repos/NotRequiem/VMAware/releases/latest \
             | jq -r .tag_name)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Check if release branch exists
-        id: check_tag
-        run: |
-          version="${{ steps.vmaware.outputs.tag }}"
-          if git ls-remote --heads origin | grep -q "refs/heads/$version$"; then
-            echo "is_new_tag=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_new_tag=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Get latest VMAware main SHA
         id: sha
@@ -74,18 +64,6 @@ jobs:
           git add deps/vmaware.hpp
           git commit -m "chore: sync VMAware main (${{ steps.sha.outputs.sha }})"
           git push
-
-      - name: Create release branch
-        if: steps.check_tag.outputs.is_new_tag == 'true' && steps.test.outputs.success == 'true' && steps.changed.outputs.changed == 'true'
-        run: |
-          version="${{ steps.vmaware.outputs.tag }}"
-          version_clean="${version#v}"
-          git checkout -b $version
-          sed -i "s/^version = .*/version = \"$version_clean\"/" Cargo.toml
-          git add Cargo.toml
-          git commit -m "chore: bump version to $version_clean for VMAware $version"
-          git push origin $version
-          git checkout -
 
       - name: Open PR on failure
         if: steps.changed.outputs.changed == 'true' && steps.test.outputs.success == 'false'
