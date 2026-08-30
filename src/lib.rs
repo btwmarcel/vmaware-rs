@@ -60,49 +60,55 @@ pub enum VmType {
 impl From<String> for VmType {
     fn from(s: String) -> Self {
         match s.as_str() {
-            "Hypervisor (Type 1)" => VmType::Hv1,
-            "Hypervisor (Type 2)" => VmType::Hv2,
-            "Hypervisor (unknown type)" => VmType::HvUnknown,
-            "Hosted hypervisor / accelerator (type 2)" => VmType::HostedAccelerator,
-            "Emulator" => VmType::Emulator,
-            "Emulator/Hypervisor (type 2)" => VmType::EmulatorHv2,
-            "Paravirtualised/Hypervisor (type 2)" => VmType::Paravirtualised,
-            "Sandbox" => VmType::Sandbox,
-            "Container" => VmType::Container,
-            "Compatibility layer" => VmType::CompatibilityLayer,
-            "VM encryptor" => VmType::VmEncryptor,
-            "Trusted Domain" => VmType::TrustedDomain,
-            "Partitioning Hypervisor" => VmType::PartitioningHv,
-            "Cloud VM service" => VmType::CloudVmService,
-            "Host machine" => VmType::HyperVRoot,
-            "Unknown" => VmType::Unknown,
-            "Invalid" => VmType::Invalid,
-            other => VmType::Other(other.to_string()),
+            "Hypervisor (Type 1)" => Self::Hv1,
+            "Hypervisor (Type 2)" => Self::Hv2,
+            "Hypervisor (unknown type)" => Self::HvUnknown,
+            "Hosted hypervisor / accelerator (Type 2)" => Self::HostedAccelerator,
+            "Emulator" => Self::Emulator,
+            "Emulator/Hypervisor (Type 2)" => Self::EmulatorHv2,
+            "Paravirtualised/Hypervisor (Type 2)" => Self::Paravirtualised,
+            "Sandbox" => Self::Sandbox,
+            "Container" => Self::Container,
+            "Compatibility layer" => Self::CompatibilityLayer,
+            "VM encryptor" => Self::VmEncryptor,
+            "Trusted Domain" => Self::TrustedDomain,
+            "Partitioning Hypervisor" => Self::PartitioningHv,
+            "Cloud VM service" => Self::CloudVmService,
+            "Host machine" => Self::HyperVRoot,
+            "Unknown" => Self::Unknown,
+            "Invalid" => Self::Invalid,
+            _ => Self::Other(s),
         }
+    }
+}
+
+impl From<&str> for VmType {
+    fn from(s: &str) -> Self {
+        Self::from(s.to_owned())
     }
 }
 
 impl std::fmt::Display for VmType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmType::Hv1 => write!(f, "Hypervisor (Type 1)"),
-            VmType::Hv2 => write!(f, "Hypervisor (Type 2)"),
-            VmType::HvUnknown => write!(f, "Hypervisor (unknown type)"),
-            VmType::HostedAccelerator => write!(f, "Hosted hypervisor / accelerator (Type 2)"),
-            VmType::Emulator => write!(f, "Emulator"),
-            VmType::EmulatorHv2 => write!(f, "Emulator/Hypervisor (Type 2)"),
-            VmType::Paravirtualised => write!(f, "Paravirtualised/Hypervisor (Type 2)"),
-            VmType::Sandbox => write!(f, "Sandbox"),
-            VmType::Container => write!(f, "Container"),
-            VmType::CompatibilityLayer => write!(f, "Compatibility layer"),
-            VmType::VmEncryptor => write!(f, "VM encryptor"),
-            VmType::TrustedDomain => write!(f, "Trusted Domain"),
-            VmType::PartitioningHv => write!(f, "Partitioning Hypervisor"),
-            VmType::CloudVmService => write!(f, "Cloud VM service"),
-            VmType::HyperVRoot => write!(f, "Host machine"),
-            VmType::Unknown => write!(f, "Unknown"),
-            VmType::Invalid => write!(f, "Invalid"),
-            VmType::Other(s) => write!(f, "{s}"),
+            Self::Hv1 => write!(f, "Hypervisor (Type 1)"),
+            Self::Hv2 => write!(f, "Hypervisor (Type 2)"),
+            Self::HvUnknown => write!(f, "Hypervisor (unknown type)"),
+            Self::HostedAccelerator => write!(f, "Hosted hypervisor / accelerator (Type 2)"),
+            Self::Emulator => write!(f, "Emulator"),
+            Self::EmulatorHv2 => write!(f, "Emulator/Hypervisor (Type 2)"),
+            Self::Paravirtualised => write!(f, "Paravirtualised/Hypervisor (Type 2)"),
+            Self::Sandbox => write!(f, "Sandbox"),
+            Self::Container => write!(f, "Container"),
+            Self::CompatibilityLayer => write!(f, "Compatibility layer"),
+            Self::VmEncryptor => write!(f, "VM encryptor"),
+            Self::TrustedDomain => write!(f, "Trusted Domain"),
+            Self::PartitioningHv => write!(f, "Partitioning Hypervisor"),
+            Self::CloudVmService => write!(f, "Cloud VM service"),
+            Self::HyperVRoot => write!(f, "Host machine"),
+            Self::Unknown => write!(f, "Unknown"),
+            Self::Invalid => write!(f, "Invalid"),
+            Self::Other(s) => write!(f, "{s}"),
         }
     }
 }
