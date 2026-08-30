@@ -114,7 +114,6 @@ unsafe extern "C" {
     fn vmaware_percentage(out: *mut u8, err: *mut *mut c_char) -> bool;
     fn vmaware_conclusion(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
     fn vmaware_detected_count(out: *mut u8, err: *mut *mut c_char) -> bool;
-    fn vmaware_is_hardened(out: *mut bool, err: *mut *mut c_char) -> bool;
     fn vmaware_brand(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
     fn free_string(s: *mut c_char);
 }
@@ -234,23 +233,6 @@ pub fn detected_count() -> Result<u8, VmawareError> {
 
     if ok {
         unsafe { take_ffi_string(err) };
-        Ok(out)
-    } else {
-        match unsafe { take_ffi_string(err) } {
-            Some(e) => Err(VmawareError::Ffi(e)),
-            None => Err(VmawareError::Unknown),
-        }
-    }
-}
-
-pub fn is_hardened() -> Result<bool, VmawareError> {
-    let mut out: bool = false;
-    let mut err: *mut c_char = std::ptr::null_mut();
-
-    let ok = unsafe { vmaware_is_hardened(&mut out, &mut err) };
-
-    if ok {
-        unsafe { take_ffi_string(err) }; 
         Ok(out)
     } else {
         match unsafe { take_ffi_string(err) } {
