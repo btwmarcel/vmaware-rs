@@ -12,7 +12,7 @@ Libclang (because rust-bindgen uses it)
 
 ```toml
 [dependencies]
-vmaware = { git = "https://github.com/MarcelDev/vmaware-rs" }
+vmaware = { git = "https://github.com/btwmarcel/vmaware-rs" }
 ```
 
 ```rust
