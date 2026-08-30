@@ -95,7 +95,7 @@ jobs:
           commit-message: "chore: update VMAware to ${{ steps.vmaware.outputs.tag }}"
           title: "⚠️ VMAware update failed to build"
           branch: update-vmaware-${{ steps.vmaware.outputs.tag }}
-          assignees: MarcelDev
+          assignees: btwmarcel
           draft: true
           body: |
             VMAware updated, but running the example failed (runtime panic, or compile error).
