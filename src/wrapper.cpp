@@ -35,7 +35,7 @@ namespace {
 
 extern "C" {
 
-    bool vmaware_detect(bool* out, char** err) noexcept {
+    bool vmaware_detect(bool* out, char** err, bool high_threshold) noexcept {
         if (out == nullptr) {
             return false;
         }
@@ -44,7 +44,10 @@ extern "C" {
         }
 
         try {
-            *out = VM::detect();
+            *out = high_threshold
+                ? VM::detect(VM::HIGH_THRESHOLD)
+                : VM::detect();
+
             return true;
         }
         catch (const std::exception& e) {
@@ -193,7 +196,7 @@ extern "C" {
         }
     }
 
-    bool vmaware_brand(char** out, char** err) noexcept {
+    bool vmaware_brand(char** out, char** err, bool multiple) noexcept {
         if (out == nullptr) {
             return false;
         }
@@ -203,7 +206,10 @@ extern "C" {
         }
 
         try {
-            *out = copy_string(VM::brand());
+            *out = multiple 
+                ? copy_string(VM::brand(VM::MULTIPLE)) 
+                : copy_string(VM::brand());
+
             return true;
         }
         catch (const std::exception& e) {

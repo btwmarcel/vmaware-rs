@@ -114,13 +114,13 @@ impl std::fmt::Display for VmType {
 }
 
 unsafe extern "C" {
-    fn vmaware_detect(out: *mut bool, err: *mut *mut c_char) -> bool;
+    fn vmaware_detect(out: *mut bool, err: *mut *mut c_char, high_threshold: bool) -> bool;
     fn vmaware_check(flag: u8, out: *mut bool, err: *mut *mut c_char) -> bool;
     fn vmaware_type(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
     fn vmaware_percentage(out: *mut u8, err: *mut *mut c_char) -> bool;
     fn vmaware_conclusion(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
     fn vmaware_detected_count(out: *mut u8, err: *mut *mut c_char) -> bool;
-    fn vmaware_brand(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
+    fn vmaware_brand(out: *mut *mut c_char, err: *mut *mut c_char, multiple: bool) -> bool;
     fn free_string(s: *mut c_char);
 }
 
@@ -137,11 +137,11 @@ unsafe fn take_ffi_string(ptr: *mut c_char) -> Option<String> {
 }
 
 /// Detect if running inside a VM
-pub fn detect() -> Result<bool, VmawareError> {
+pub fn detect(high_threshold: bool) -> Result<bool, VmawareError> {
     let mut out = false;
     let mut err: *mut c_char = std::ptr::null_mut();
 
-    let ok = unsafe { vmaware_detect(&mut out, &mut err) };
+    let ok = unsafe { vmaware_detect(&mut out, &mut err, high_threshold) };
 
     if ok {
         unsafe { take_ffi_string(err) };
@@ -256,12 +256,12 @@ pub fn detected_count() -> Result<u8, VmawareError> {
     }
 }
 
-/// Fetch the VM brand
-pub fn brand() -> Result<String, VmawareError> {
+/// Fetch the VM brand(s).
+pub fn brand(multiple: bool) -> Result<String, VmawareError> {
     let mut out: *mut c_char = std::ptr::null_mut();
     let mut err: *mut c_char = std::ptr::null_mut();
 
-    let ok = unsafe { vmaware_brand(&mut out, &mut err) };
+    let ok = unsafe { vmaware_brand(&mut out, &mut err, multiple) };
 
     if ok {
         let value = unsafe { take_ffi_string(out) };
