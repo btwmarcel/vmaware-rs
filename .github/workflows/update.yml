@@ -7,30 +7,34 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
+    outputs:
+      changed: ${{ steps.changed.outputs.changed }}
+      tag: ${{ steps.vmaware.outputs.tag }}
+      sha: ${{ steps.sha.outputs.sha }}
+
     steps:
       - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-
       - name: Get latest VMAware release tag
         id: vmaware
         run: |
-          set -e
-          tag=$(curl -s https://api.github.com/repos/NotRequiem/VMAware/releases/latest \
+          set -euo pipefail
+          tag=$(curl -fsS https://api.github.com/repos/NotRequiem/VMAware/releases/latest -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             | jq -r .tag_name)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Get latest VMAware main SHA
         id: sha
         run: |
-          sha=$(curl -s https://api.github.com/repos/NotRequiem/VMAware/commits/main \
+          set -euo pipefail
+          sha=$(curl -fsS https://api.github.com/repos/NotRequiem/VMAware/commits/main -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             | jq -r .sha)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
@@ -46,38 +50,85 @@ jobs:
             && echo "changed=false" >> "$GITHUB_OUTPUT" \
             || echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        id: test
+      - name: Upload updated header
         if: steps.changed.outputs.changed == 'true'
-        run: |
-          cargo run --example basic 2>&1 && echo "success=true" >> "$GITHUB_OUTPUT" || echo "success=false" >> "$GITHUB_OUTPUT"
+        uses: actions/upload-artifact@v7
+        with:
+          name: vmaware-header
+          path: deps/vmaware.hpp
+
+  test:
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          # Linux x86_64
+          - ubuntu-24.04
+
+          # Linux ARM64
+          - ubuntu-24.04-arm
+
+          # macOS x86_64
+          - macos-26-intel
+
+          # macOS ARM64
+          - macos-26
+
+          # Windows x86_64
+          - windows-2025
+
+          # Windows ARM64
+          - windows-11-arm
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Download updated header
+        uses: actions/download-artifact@v8
+        with:
+          name: vmaware-header
+          path: deps
+
+      - name: Run basic example
+        run: cargo run --example basic
+
+  push:
+    needs:
+      - update
+      - test
+
+    if: |
+      always() &&
+      needs.update.outputs.changed == 'true' &&
+      needs.test.result == 'success'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download updated header
+        uses: actions/download-artifact@v8
+        with:
+          name: vmaware-header
+          path: deps
 
       - name: Configure git
-        if: steps.changed.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Push to master
-        if: steps.changed.outputs.changed == 'true' && steps.test.outputs.success == 'true'
         run: |
           git add deps/vmaware.hpp
-          git commit -m "chore: sync VMAware main (${{ steps.sha.outputs.sha }})"
+          git commit -m "chore: sync VMAware main (${{ needs.update.outputs.sha }})"
           git push
-
-      - name: Open PR on failure
-        if: steps.changed.outputs.changed == 'true' && steps.test.outputs.success == 'false'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update VMAware to ${{ steps.vmaware.outputs.tag }}"
-          title: "⚠️ VMAware update failed to build"
-          branch: update-vmaware-${{ steps.vmaware.outputs.tag }}
-          assignees: btwmarcel
-          draft: true
-          body: |
-            VMAware updated, but running the example failed (runtime panic, or compile error).
-            Review the changes, and fix it before merging.
-
-            VMAware ref: ${{ steps.vmaware.outputs.tag }}
-            Main SHA: ${{ steps.sha.outputs.sha }}
