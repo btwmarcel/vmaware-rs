@@ -1043,36 +1043,33 @@ public:
                 amd_easter_egg = 0x8fffffff;
         };
 
-        static void cpuid_count (
-            unsigned leaf, 
-            unsigned subleaf, 
-            unsigned* VMAWARE_RESTRICT a, 
-            unsigned* VMAWARE_RESTRICT b, 
-            unsigned* VMAWARE_RESTRICT c, 
-            unsigned* VMAWARE_RESTRICT d
+        /* Internal helper using C++ references */
+        static void cpuid_count(
+            const u32 leaf,
+            const u32 subleaf,
+            u32& a,
+            u32& b,
+            u32& c,
+            u32& d
         ) noexcept {
-            VMAWARE_ASSUME(a != nullptr);
-            VMAWARE_ASSUME(b != nullptr);
-            VMAWARE_ASSUME(c != nullptr);
-            VMAWARE_ASSUME(d != nullptr);
         #if (x86)
             #if (MSVC)
-                int regs[4];
+                int regs[4] = { 0 };
                 __cpuidex(regs, static_cast<int>(leaf), static_cast<int>(subleaf));
-                *a = static_cast<unsigned int>(regs[0]);
-                *b = static_cast<unsigned int>(regs[1]);
-                *c = static_cast<unsigned int>(regs[2]);
-                *d = static_cast<unsigned int>(regs[3]);
-            #elif (x86)
-                __get_cpuid_count(leaf, subleaf, a, b, c, d);
+                a = static_cast<u32>(regs[0]);
+                b = static_cast<u32>(regs[1]);
+                c = static_cast<u32>(regs[2]);
+                d = static_cast<u32>(regs[3]);
             #else
-                VMAWARE_UNUSED(leaf); 
-                VMAWARE_UNUSED(subleaf); 
-                VMAWARE_UNUSED(a); 
-                VMAWARE_UNUSED(b); 
-                VMAWARE_UNUSED(c); 
-                VMAWARE_UNUSED(d);
-            #endif
+                __cpuid_count(leaf, subleaf, a, b, c, d);
+            #endif  
+        #else
+            VMAWARE_UNUSED(leaf);
+            VMAWARE_UNUSED(subleaf);
+            VMAWARE_UNUSED(a);
+            VMAWARE_UNUSED(b);
+            VMAWARE_UNUSED(c);
+            VMAWARE_UNUSED(d);
         #endif
         }
 
@@ -1085,18 +1082,16 @@ public:
             c = 0;
             d = 0;
 
-            u32 aa = 0u;
-            u32 bb = 0u;
-            u32 cc = 0u;
-            u32 dd = 0u;
-            cpuid_count(a_leaf, c_leaf, &aa, &bb, &cc, &dd);
-
-            a = aa;
-            b = bb;
-            c = cc;
-            d = dd;
+            cpuid_count(a_leaf, c_leaf, a, b, c, d);
+        #else
+            VMAWARE_UNUSED(a);
+            VMAWARE_UNUSED(b);
+            VMAWARE_UNUSED(c);
+            VMAWARE_UNUSED(d);
+            VMAWARE_UNUSED(a_leaf);
+            VMAWARE_UNUSED(c_leaf);
         #endif
-        };
+        }
 
         /* Same as above but for array type parameters (MSVC specific) */
         static void cpuid(i32 x[4], const u32 a_leaf, const u32 c_leaf = 0xFF) noexcept {
@@ -1107,18 +1102,19 @@ public:
             x[2] = 0;
             x[3] = 0;
 
-            u32 aa = 0u;
-            u32 bb = 0u;
-            u32 cc = 0u;
-            u32 dd = 0u;
-            cpuid_count(a_leaf, c_leaf, &aa, &bb, &cc, &dd);
+            u32 a = 0u, b = 0u, c = 0u, d = 0u;
+            cpuid_count(a_leaf, c_leaf, a, b, c, d);
 
-            x[0] = static_cast<i32>(aa);
-            x[1] = static_cast<i32>(bb);
-            x[2] = static_cast<i32>(cc);
-            x[3] = static_cast<i32>(dd);
+            x[0] = static_cast<i32>(a);
+            x[1] = static_cast<i32>(b);
+            x[2] = static_cast<i32>(c);
+            x[3] = static_cast<i32>(d);
+        #else
+            VMAWARE_UNUSED(x);
+            VMAWARE_UNUSED(a_leaf);
+            VMAWARE_UNUSED(c_leaf);
         #endif
-        };
+        }
 
         [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) noexcept {
         #if (APPLE) 
@@ -1201,7 +1197,7 @@ public:
             cpu::cpuid(regs[8], regs[9], regs[10], regs[11], cpu::leaf::brand3);
 
             static char buffer[49];
-            memcpy(buffer, regs, sizeof(regs));
+            std::memcpy(buffer, regs, sizeof(regs));
             buffer[48] = '\0';
 
             /*
@@ -1255,7 +1251,7 @@ public:
 
             u32 regs[3] = { ebx, ecx, edx };
 
-            memcpy(buffers[index], regs, sizeof(regs));
+            std::memcpy(buffers[index], regs, sizeof(regs));
             buffers[index][12] = '\0';
 
             *cache = buffers[index];
@@ -3261,19 +3257,20 @@ public:
         }
     };
 
-    static VMAWARE_CONSTEXPR void str_copy(char* VMAWARE_RESTRICT dest, const char* VMAWARE_RESTRICT src, const size_t max_len) noexcept {
-        VMAWARE_ASSUME(dest != nullptr);
-        VMAWARE_ASSUME(src != nullptr);
+    template <std::size_t N>
+    static inline void str_copy(char(&dest)[N], const char* VMAWARE_RESTRICT src) noexcept {
+        static_assert(N > 0, "Destination buffer must have non-zero size");
 
-        size_t i = 0;
-        if (max_len == 0) return;
-
-        while (src[i] != '\0' && i < max_len - 1) {
-            dest[i] = src[i];
-            i++;
+        if (!src) {
+            dest[0] = '\0';
+            return;
         }
 
-        dest[i] = '\0';
+        const char* const end = static_cast<const char*>(std::memchr(src, '\0', N));
+        const std::size_t copy_len = end ? static_cast<std::size_t>(end - src) : (N - 1);
+
+        std::memcpy(dest, src, copy_len);
+        dest[copy_len] = '\0';
     }
 
     /* Memoization */
@@ -3385,7 +3382,7 @@ public:
             static bool cached;
 
             static void store(const char* s, const flagset& flags) noexcept {
-                str_copy(cache, s, sizeof(cache));
+                str_copy(cache, s);
                 cached_flags = flags;
                 cached = true;
             }
@@ -3404,7 +3401,7 @@ public:
             static bool cached;
 
             static void store(const char* s) noexcept {
-                str_copy(brand_cache, s, sizeof(brand_cache));
+                str_copy(brand_cache, s); 
                 cached = true;
             }
 
@@ -4088,25 +4085,29 @@ public:
         static void get_function(const HMODULE module, const char* const VMAWARE_RESTRICT names[], void** const VMAWARE_RESTRICT functions, const size_t count, const bool cache_result = true) {
             VMAWARE_ASSUME(names != nullptr);
             VMAWARE_ASSUME(functions != nullptr);
+
             using func_map = std::unordered_map<std::string, void*>;
             static std::unordered_map<HMODULE, func_map> function_cache;
 
-            for (size_t i = 0; i < count; ++i) functions[i] = nullptr;
+            if (VMAWARE_UNLIKELY(!functions || !names || count == 0)) {
+                return;
+            }
+
+            std::memset(functions, 0, count * sizeof(void*));
+
             if (!module) {
                 return;
             }
 
             BYTE* base = reinterpret_cast<BYTE*>(module);
 
-            size_t module_size = 0;
-            {
-                MEMORY_BASIC_INFORMATION mbi = {};
-                if (VirtualQuery(base, &mbi, sizeof(mbi))) {
-                    module_size = static_cast<size_t>(mbi.RegionSize);
-                }
-                else {
-                    return;
-                }
+            size_t module_size = 0;        
+            MEMORY_BASIC_INFORMATION mbi = {};
+            if (VirtualQuery(base, &mbi, sizeof(mbi))) {
+                module_size = static_cast<size_t>(mbi.RegionSize);
+            }
+            else {
+                return;
             }
 
             auto valid_range = [&](size_t offset, size_t sz) noexcept -> bool {
@@ -5252,7 +5253,7 @@ public:
                         break;
                     }
                     const size_t first_event_size = static_cast<size_t>(32) + first_event->event_data_size;
-                    const bool crypto_agile = (first_event->event_data_size >= 16 && memcmp(first_event->event_data, "Spec ID Event03", 15) == 0);
+                    const bool crypto_agile = (first_event->event_data_size >= 16 && std::memcmp(first_event->event_data, "Spec ID Event03", 15) == 0);
 
                     struct alg_size_pair {
                         u16 alg_id;
@@ -5721,18 +5722,43 @@ public:
                 return supported;
             }
 
+            /* Table generator for CRC32-C */
+            struct crc32c_table {
+                u32 table[256];
+                crc32c_table() noexcept {
+                    for (u32 i = 0; i < 256; ++i) {
+                        u32 c = i;
+                        for (int j = 0; j < 8; ++j) {
+                            c = (c >> 1) ^ ((c & 1) ? 0x82F63B78u : 0);
+                        }
+                        table[i] = c;
+                    }
+                }
+            };
+
             /* Software fallback CRC32-C (Castagnoli) of a block of memory */
             static u32 crc32c_sw(u32 crc, const void* VMAWARE_RESTRICT data, const size_t len) noexcept {
-                if (len > 0) {
-                    VMAWARE_ASSUME(data != nullptr);
+                if (VMAWARE_UNLIKELY(!data || len == 0)) {
+                    return crc;
                 }
-                const u8* ptr = reinterpret_cast<const u8*>(data);
 
-                for (size_t i = 0; i < len; ++i) {
-                    crc ^= ptr[i];
-                    for (int j = 0; j < 8; ++j) {
-                        crc = (crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0);
-                    }
+                static const crc32c_table instance;
+                const u32* const table = instance.table;
+                const u8* const ptr = static_cast<const u8*>(data);
+
+                size_t i = 0;
+
+                while (i + 4 <= len) {
+                    crc = (crc >> 8) ^ table[(crc ^ ptr[i]) & 0xFF];
+                    crc = (crc >> 8) ^ table[(crc ^ ptr[i + 1]) & 0xFF];
+                    crc = (crc >> 8) ^ table[(crc ^ ptr[i + 2]) & 0xFF];
+                    crc = (crc >> 8) ^ table[(crc ^ ptr[i + 3]) & 0xFF];
+                    i += 4;
+                }
+
+                while (i < len) {
+                    crc = (crc >> 8) ^ table[(crc ^ ptr[i]) & 0xFF];
+                    ++i;
                 }
 
                 return crc;
@@ -7591,7 +7617,7 @@ public:
 
         for (; it != end; ++it) {
             std::size_t const name_len = std::min<std::size_t>(sizeof(ifr.ifr_name) - 1, strnlen(it->ifr_name, sizeof(it->ifr_name)));
-            memcpy(ifr.ifr_name, it->ifr_name, name_len);
+            std::memcpy(ifr.ifr_name, it->ifr_name, name_len);
             *(ifr.ifr_name + name_len) = '\0';
 
             if (ioctl(sock_guard.get(), SIOCGIFFLAGS, &ifr) != 0) {
@@ -7607,7 +7633,7 @@ public:
         }
 
         if (success) {
-            memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
+            std::memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
         }
         else {
             debug("MAC: ", "not successful");
@@ -8573,13 +8599,13 @@ public:
                                 } _gdtr = {};
                                 #pragma pack(pop)
                                 _sgdt(&_gdtr);
-                                memcpy(gdtr, &_gdtr, sizeof(_gdtr));
+                                std::memcpy(gdtr, &_gdtr, sizeof(_gdtr));
                             #endif
                             }
                             __except (EXCEPTION_EXECUTE_HANDLER) {}
 
                             ULONG_PTR gdt_base = 0;
-                            memcpy(&gdt_base, &gdtr[2], sizeof(gdt_base));
+                            std::memcpy(&gdt_base, &gdtr[2], sizeof(gdt_base));
 
                             if ((gdt_base >> 24) == 0xFF) {
                                 debug("SGDT: 0xFF signature detected on core ", i);
@@ -8605,7 +8631,7 @@ public:
                             }
                             __except (EXCEPTION_EXECUTE_HANDLER) {}
 
-                            memcpy(&ldt_val, ldtr_buf, sizeof(ldt_val));
+                            std::memcpy(&ldt_val, ldtr_buf, sizeof(ldt_val));
                             if (ldtr_buf[0] != 0x00 && ldtr_buf[1] != 0x00) {
                                 debug("SLDT: ldtr_buf signature detected");
                                 found = true;
@@ -8638,13 +8664,13 @@ public:
                                 } idtr;
                                 #pragma pack(pop)
                                 __sidt(&idtr);
-                                memcpy(idtr_buffer, &idtr, sizeof(idtr));
+                                std::memcpy(idtr_buffer, &idtr, sizeof(idtr));
                             #endif
                             }
                             __except (EXCEPTION_EXECUTE_HANDLER) {}
 
                             ULONG_PTR idt_base = 0;
-                            memcpy(&idt_base, &idtr_buffer[2], sizeof(idt_base));
+                            std::memcpy(&idt_base, &idtr_buffer[2], sizeof(idt_base));
 
                             if ((idt_base >> 24) == 0xE8) {
                                 debug("SIDT: VPC/Hyper-V signature detected on core ", i);
@@ -8842,7 +8868,7 @@ public:
 
                 while (remaining_bytes >= pattern_len) {
                     VMAWARE_PREFETCH(search_ptr + 64, _MM_HINT_T0);
-                    const void* match = memchr(search_ptr, first_byte, remaining_bytes);
+                    const void* match = std::memchr(search_ptr, first_byte, remaining_bytes);
                     if (!match) {
                         return false;
                     }
@@ -8851,7 +8877,7 @@ public:
                     if (index + pattern_len > buffer_len) {
                         return false;
                     }
-                    if (memcmp(match_ptr, pattern, pattern_len) == 0) {
+                    if (std::memcmp(match_ptr, pattern, pattern_len) == 0) {
                         return true;
                     }
                     search_ptr = match_ptr + 1;
@@ -8869,12 +8895,12 @@ public:
                 if (buffer_len < sizeof(acpi_header)) {
                     return false;
                 }
-                memcpy(&header, buffer, sizeof(header));
+                std::memcpy(&header, buffer, sizeof(header));
 
                 /* Identify and record DSDT size and OEM details */
-                if (memcmp(header.signature, "DSDT", 4) == 0) {
+                if (std::memcmp(header.signature, "DSDT", 4) == 0) {
                     dsdt_scanned = true;
-                    memcpy(dsdt_oem_id, header.oem_id, 6);
+                    std::memcpy(dsdt_oem_id, header.oem_id, 6);
                     dsdt_oem_id[6] = '\0';
                 }
 
@@ -8929,7 +8955,7 @@ public:
                         auto find_eisa = [&]() noexcept -> const u8* {
                             if (buffer_len < sizeof(pnp0a06_eisa)) return nullptr;
                             for (size_t i = 0; i <= buffer_len - sizeof(pnp0a06_eisa); ++i) {
-                                if (memcmp(buffer + i, pnp0a06_eisa, sizeof(pnp0a06_eisa)) == 0) {
+                                if (std::memcmp(buffer + i, pnp0a06_eisa, sizeof(pnp0a06_eisa)) == 0) {
                                     return buffer + i;
                                 }
                             }
@@ -8944,7 +8970,7 @@ public:
                             const size_t search_end = pnp_offset + 64 <= buffer_len ? pnp_offset + 64 : buffer_len;
 
                             for (size_t i = search_start; i + 8 < search_end; ++i) {
-                                if (memcmp(buffer + i, uid_signature, sizeof(uid_signature)) == 0) {
+                                if (std::memcmp(buffer + i, uid_signature, sizeof(uid_signature)) == 0) {
                                     /* Check if the _UID value is a string (represented by 0x0D StringPrefix in AML) starting with "SM" */
                                     if (buffer[i + 5] == 0x0D && buffer[i + 6] == 'S' && buffer[i + 7] == 'M') {
                                         debug("FIRMWARE: Detected QEMU generic device containing SMI string unique identifier");
@@ -8968,10 +8994,10 @@ public:
                     /* PRTP and PRTA variable-size relative symmetry check (replaces old exact-128 check) */
                     {
                         auto get_package_size = [&](const char* name) noexcept -> u8 {
-                            const u8* name_ptr = static_cast<const u8*>(memchr(buffer, name[0], buffer_len));
+                            const u8* name_ptr = static_cast<const u8*>(std::memchr(buffer, name[0], buffer_len));
                             while (name_ptr) {
                                 const size_t offset = static_cast<size_t>(name_ptr - buffer);
-                                if (offset + 10 <= buffer_len && memcmp(name_ptr, name, 4) == 0) {
+                                if (offset + 10 <= buffer_len && std::memcmp(name_ptr, name, 4) == 0) {
                                     /* Confirm it represents NameOp (0x08) and PackageOp (0x12) */
                                     if (offset >= 1 && *(name_ptr - 1) == 0x08 && name_ptr[4] == 0x12) {
                                         /* Scan a small window following the PackageOp for a realistic element count (32 to 255) */
@@ -8983,7 +9009,7 @@ public:
                                     }
                                 }
                                 if (offset + 1 < buffer_len) {
-                                    name_ptr = static_cast<const u8*>(memchr(name_ptr + 1, name[0], buffer_len - (offset + 1)));
+                                    name_ptr = static_cast<const u8*>(std::memchr(name_ptr + 1, name[0], buffer_len - (offset + 1)));
                                 }
                                 else {
                                     name_ptr = nullptr;
@@ -9015,7 +9041,7 @@ public:
                             const size_t end_offset = buffer_len - sizeof(qemu_hpet_signature);
 
                             for (size_t i = 0; i <= end_offset; ++i) {
-                                if (memcmp(&ptr[i], qemu_hpet_signature, sizeof(qemu_hpet_signature)) == 0) {
+                                if (std::memcmp(&ptr[i], qemu_hpet_signature, sizeof(qemu_hpet_signature)) == 0) {
                                     debug("FIRMWARE: Detected QEMU HPET period-validation signature");
                                     return core::add(brand_enum::QEMU);
                                 }
@@ -9092,9 +9118,9 @@ public:
 
                 if (buffer_len >= 36) {
                     char oem_id[7] = { 0 };
-                    memcpy(oem_id, buffer + 10, 6);
+                    std::memcpy(oem_id, buffer + 10, 6);
                     char oem_table_id[9] = { 0 };
-                    memcpy(oem_table_id, buffer + 16, 8);
+                    std::memcpy(oem_table_id, buffer + 16, 8);
 
                     if (strstr(oem_id, marker) != nullptr) {
                         debug("FIRMWARE: VMWareHardenedLoader found in OEMID -> '", oem_id, "'");
@@ -9109,7 +9135,7 @@ public:
 
             if (is_acpi) {
                 /* 4) FADT structure limits validation */
-                if (memcmp(header.signature, "FACP", 4) == 0) {
+                if (std::memcmp(header.signature, "FACP", 4) == 0) {
                     if (header.length > buffer_len) {
                         debug("FIRMWARE: declared header length larger than fetched length (declared ", header.length, ", fetched ", buffer_len, ")");
                         return true;
@@ -9120,7 +9146,7 @@ public:
                     }
 
                     fadt_table fadt;
-                    memcpy(&fadt, buffer, sizeof(fadt_table));
+                    std::memcpy(&fadt, buffer, sizeof(fadt_table));
 
                     if (fadt.p_lvl2_lat == 0x0FFF || fadt.p_lvl3_lat == 0x0FFF) {
                         debug("FIRMWARE: C2 and C3 latencies indicate VM");
@@ -9129,13 +9155,13 @@ public:
                 }
 
                 /* 5) DMA Remapping table validation */
-                if (memcmp(header.signature, "DMAR", 4) == 0) {
+                if (std::memcmp(header.signature, "DMAR", 4) == 0) {
                     size_t offset = 48; /* Subtables start at offset 48 (0x30) */
                     while (offset + 4 <= buffer_len) {
                         u16 subtable_type = 0;
                         u16 subtable_len = 0;
-                        memcpy(&subtable_type, buffer + offset, sizeof(u16));
-                        memcpy(&subtable_len, buffer + offset + 2, sizeof(u16));
+                        std::memcpy(&subtable_type, buffer + offset, sizeof(u16));
+                        std::memcpy(&subtable_len, buffer + offset + 2, sizeof(u16));
 
                         if (subtable_len < 4 || offset + subtable_len > buffer_len) {
                             break;
@@ -9180,7 +9206,7 @@ public:
                 }
 
                 /* 6) APIC/MADT table validation */
-                if (memcmp(header.signature, "APIC", 4) == 0) {
+                if (std::memcmp(header.signature, "APIC", 4) == 0) {
                     size_t offset = 44; /* MADT subtables start at offset 44 (0x2C) */
                     u8 qemu_override_mask = 0;
 
@@ -9199,8 +9225,8 @@ public:
                             u32 global_system_interrupt = 0;
                             u16 flags = 0;
 
-                            memcpy(&global_system_interrupt, buffer + offset + 4, sizeof(u32));
-                            memcpy(&flags, buffer + offset + 8, sizeof(u16));
+                            std::memcpy(&global_system_interrupt, buffer + offset + 4, sizeof(u32));
+                            std::memcpy(&flags, buffer + offset + 8, sizeof(u16));
 
                             u8 source_mask = 0;
                             switch (source) {
@@ -9944,7 +9970,7 @@ public:
         #endif
 
         auto strnlen = [](const char* s, const size_t max) noexcept -> size_t {
-            const void* p = memchr(s, 0, max);
+            const void* p = std::memchr(s, 0, max);
             if (!p) {
                 return max;
             }
@@ -10044,7 +10070,7 @@ public:
                 if (NT_SUCCESS(query_st)) {
                     BYTE* payload = reinterpret_cast<BYTE*>(allocation_base) + header_size;
                     if (query_iosb.Information >= header_size + out_size) {
-                        memcpy(out_buf, payload, out_size);
+                        std::memcpy(out_buf, payload, out_size);
                         success = true;
                     }   
                 }
@@ -10873,7 +10899,7 @@ public:
 
         const size_t copyLen = (actual_data_len < (sizeof(product_id) - 1)) ? actual_data_len : (sizeof(product_id) - 1);
 
-        memcpy(product_id, kv->Data, copyLen);
+        std::memcpy(product_id, kv->Data, copyLen);
         product_id[copyLen] = '\0';
 
         /* A list of known Product IDs associated with public malware analysis sandboxes */
@@ -10898,7 +10924,7 @@ public:
          * if a match is found, we identify the specific sandbox environment and flag it
          */
         for (const auto& target : targets) {
-            if (memcmp(product_id, target.product_id, target_length) == 0) {
+            if (std::memcmp(product_id, target.product_id, target_length) == 0) {
                 debug("GAMARUE: Detected ", target.product_id);
                 return core::add(target.brand);
             }
@@ -11038,11 +11064,11 @@ public:
             wchar_t full_path[260];
 
             /* Memcpy as it is faster than wcscpy/wcscat */
-            memcpy(full_path, prefix, sizeof(prefix)); 
+            std::memcpy(full_path, prefix, sizeof(prefix)); 
 
             const size_t name_len = wcslen(base_name);
             if (prefix_len + name_len < 260) {
-                memcpy(full_path + prefix_len, base_name, (name_len + 1) * sizeof(wchar_t));
+                std::memcpy(full_path + prefix_len, base_name, (name_len + 1) * sizeof(wchar_t));
             }
             else {
                 /* Should not happen for standard VM artifacts */
@@ -11058,7 +11084,7 @@ public:
                 rtl_init_unicode_string(&u_name, path);
 
                 OBJECT_ATTRIBUTES obj_attr;
-                memset(&obj_attr, 0, sizeof(obj_attr));
+                std::memset(&obj_attr, 0, sizeof(obj_attr));
                 obj_attr.Length = sizeof(obj_attr);
                 obj_attr.ObjectName = &u_name;
                 obj_attr.Attributes = OBJ_CASE_INSENSITIVE;
@@ -11680,7 +11706,7 @@ public:
         const bool mismatch = 
             (object_name->Name.Length != expected_name.Length) ||
             (object_name->Name.Buffer == nullptr) ||
-            (memcmp(object_name->Name.Buffer, expected_name.Buffer, expected_name.Length) != 0);
+            (std::memcmp(object_name->Name.Buffer, expected_name.Buffer, expected_name.Length) != 0);
 
         return mismatch ? core::add(brand_enum::SANDBOXIE) : false;
     }
@@ -11792,7 +11818,7 @@ public:
             constexpr size_t subkeys_offset = offsetof(KEY_FULL_INFORMATION, SubKeys);
             if (info_buffer.size() >= subkeys_offset + sizeof(ULONG)) {
                 ULONG subkeys_count = 0;
-                memcpy(&subkeys_count, info_buffer.data() + subkeys_offset, sizeof(ULONG));
+                std::memcpy(&subkeys_count, info_buffer.data() + subkeys_offset, sizeof(ULONG));
                 has_subkeys = (subkeys_count > 0);
                 query_successful = true;
             }
@@ -13351,7 +13377,7 @@ public:
             }
             else {
                 amd_target_mem = base;
-                memset(amd_target_mem, 0xA5, target_size);
+                std::memset(amd_target_mem, 0xA5, target_size);
 
                 const std::uintptr_t paddr = reinterpret_cast<std::uintptr_t>(amd_target_mem);
             #if (x86_64)
@@ -13376,7 +13402,7 @@ public:
             NTSTATUS st2 = nt_allocate_virtual_memory(current_process, &base, 0, &sz, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
             if (NT_SUCCESS(st2) && base != nullptr) {
                 exec_mem = base;
-                memcpy(exec_mem, bytes, code_size);
+                std::memcpy(exec_mem, bytes, code_size);
 
                 /* Change to RX */
                 ULONG old_protection = 0;
@@ -14512,31 +14538,31 @@ public:
         auto parse_log = [](const std::vector<u8>& log_data) noexcept -> bool {
             auto read_u16 = [](const u8* ptr) noexcept -> u16 {
                 u16 val = 0;
-                memcpy(&val, ptr, sizeof(u16));
+                std::memcpy(&val, ptr, sizeof(u16));
                 return val;
             };
 
             auto read_u32 = [](const u8* ptr) noexcept -> u32 {
                 u32 val = 0;
-                memcpy(&val, ptr, sizeof(u32));
+                std::memcpy(&val, ptr, sizeof(u32));
                 return val;
             };
 
             auto read_u64 = [](const u8* ptr) noexcept -> u64 {
                 u64 val = 0;
-                memcpy(&val, ptr, sizeof(u64));
+                std::memcpy(&val, ptr, sizeof(u64));
                 return val;
             };
 
             auto read_alg_size = [](const u8* ptr) noexcept -> alg_size {
                 alg_size val = { 0, 0 };
-                memcpy(&val, ptr, sizeof(alg_size));
+                std::memcpy(&val, ptr, sizeof(alg_size));
                 return val;
             };
 
             auto read_hdr = [](const u8* ptr) noexcept -> TCG_PCR_EVENT_HEADER {
                 TCG_PCR_EVENT_HEADER val = { 0, 0, {0}, 0 };
-                memcpy(&val, ptr, sizeof(TCG_PCR_EVENT_HEADER));
+                std::memcpy(&val, ptr, sizeof(TCG_PCR_EVENT_HEADER));
                 return val;
             };
 
@@ -14561,7 +14587,7 @@ public:
             const u8* spec_id_payload = p_buffer + first_event_data_offset;
             const u32 spec_id_size = first_hdr.eventSize;
 
-            if (spec_id_size < 28 || memcmp(spec_id_payload, "Spec ID Event03", 15) != 0) {
+            if (spec_id_size < 28 || std::memcmp(spec_id_payload, "Spec ID Event03", 15) != 0) {
                 return false;
             }
 
@@ -14577,13 +14603,13 @@ public:
                 active_algs[i] = read_alg_size(alg_ptr + (i * sizeof(alg_size)));
             }
 
-            auto get_digest_size = [&active_algs](u16 algId) noexcept -> u16 {
+            auto get_digest_size = [&active_algs](const u16 algorithm_id) noexcept -> u16 {
                 for (const auto& alg : active_algs) {
-                    if (alg.algId == algId) {
+                    if (alg.algId == algorithm_id) {
                         return alg.digestSize;
                     }
                 }
-                switch (algId) {
+                switch (algorithm_id) {
                     case 0x0004: return 20; /* SHA-1 */
                     case 0x000B: return 32; /* SHA-256 */
                     case 0x000C: return 48; /* SHA-384 */
@@ -14842,13 +14868,13 @@ public:
 
         auto read_u16 = [](const u8* const ptr) noexcept -> u16 {
             u16 val;
-            memcpy(&val, ptr, sizeof(val));
+            std::memcpy(&val, ptr, sizeof(val));
             return val;
         };
 
         auto read_u32 = [](const u8* const ptr) noexcept -> u32 {
             u32 val;
-            memcpy(&val, ptr, sizeof(val));
+            std::memcpy(&val, ptr, sizeof(val));
             return val;
         };
 
@@ -15094,7 +15120,7 @@ public:
             }
 
             if (out_digest) {
-                memcpy(out_digest, resp + offset, digest_size > 32 ? 32 : digest_size);
+                std::memcpy(out_digest, resp + offset, digest_size > 32 ? 32 : digest_size);
             }
             if (out_digest_size) {
                 *out_digest_size = digest_size;
@@ -15315,7 +15341,7 @@ public:
                 offset += first_event_size;
 
                 if (first_event_type == 0x03 && first_event_size >= 24) {
-                    if (memcmp(first_event_data, "Spec ID Event03", 15) == 0) {
+                    if (std::memcmp(first_event_data, "Spec ID Event03", 15) == 0) {
                         const u8 num_algs = first_event_data[23];
                         u32 alg_offset = 24;
                         bool has_sha256 = false;
@@ -15402,7 +15428,7 @@ public:
                 if (temp_digest_count < 16) {
                     temp_digests[temp_digest_count].alg_id = alg_id;
                     temp_digests[temp_digest_count].size = size;
-                    memcpy(temp_digests[temp_digest_count].digest, log_buffer + offset, size);
+                    std::memcpy(temp_digests[temp_digest_count].digest, log_buffer + offset, size);
                     temp_digest_count++;
                 }
                 offset += size;
@@ -15432,7 +15458,7 @@ public:
                     tracked_event ev{};
                     ev.event_type = event_type;
                     ev.digest_size = temp_digests[i].size;
-                    memcpy(ev.digest, temp_digests[i].digest, temp_digests[i].size > 32 ? 32 : temp_digests[i].size);
+                    std::memcpy(ev.digest, temp_digests[i].digest, temp_digests[i].size > 32 ? 32 : temp_digests[i].size);
                     if (!pcr_events[pcr_index].push(ev)) {
                         free_resources();
                         return false;
@@ -15443,7 +15469,7 @@ public:
 
         /* Perform step-by-step state reconstruction */
         u8 reconstructed_pcrs[24][32];
-        memset(reconstructed_pcrs, 0, sizeof(reconstructed_pcrs));
+        std::memset(reconstructed_pcrs, 0, sizeof(reconstructed_pcrs));
 
         for (u32 pcr_idx = 0; pcr_idx < 8; ++pcr_idx) {
             u8 current_pcr[32] = { 0 };
@@ -15453,14 +15479,14 @@ public:
                     continue;
                 }
                 u8 concat[64];
-                memcpy(concat, current_pcr, 32);
-                memcpy(concat + 32, ev.digest, 32);
+                std::memcpy(concat, current_pcr, 32);
+                std::memcpy(concat + 32, ev.digest, 32);
                 if (!calculate_sha256(concat, 64, current_pcr)) {
                     free_resources();
                     return false;
                 }
             }
-            memcpy(reconstructed_pcrs[pcr_idx], current_pcr, 32);
+            std::memcpy(reconstructed_pcrs[pcr_idx], current_pcr, 32);
         }
 
         /* Compare logs with active system registers */
@@ -15468,7 +15494,7 @@ public:
             u8 actual_pcr[32] = { 0 };
             u32 actual_pcr_size = 0;
             if (read_tpm_pcr(h_tbs_context, pcr_idx, 0x000B, actual_pcr, &actual_pcr_size)) {
-                if (actual_pcr_size != 32 || memcmp(actual_pcr, reconstructed_pcrs[pcr_idx], 32) != 0) {
+                if (actual_pcr_size != 32 || std::memcmp(actual_pcr, reconstructed_pcrs[pcr_idx], 32) != 0) {
                     if (pcr_idx != 0 && pcr_idx != 6) {
                         debug("TPM: Detected mismatch on hardware PCR ", pcr_idx);
                         passthrough_detected = true;
@@ -15559,13 +15585,16 @@ public:
         static bool add_score(const brand_enum p_brand, const brand_enum extra_brand, const u8 score) noexcept {
             last_detected_brand = p_brand;
             last_detected_score = score; /* Store for the engine to read */
-            VMAWARE_ASSUME(p_brand <= brand_enum::NULL_BRAND); /* If we maintain the invariant that the parameters are always valid brand_enum values */
+
+            constexpr size_t max_brands = sizeof(brand_scoreboard) / sizeof(brand_scoreboard[0]);
 
             const u8 p_idx = static_cast<u8>(p_brand);
-            brand_scoreboard[p_idx].score++;
-            
+            if (VMAWARE_LIKELY(p_idx < max_brands && p_brand != brand_enum::NULL_BRAND)) {
+                brand_scoreboard[p_idx].score++;
+            }
+
             const u8 e_idx = static_cast<u8>(extra_brand);
-            if (extra_brand != brand_enum::NULL_BRAND) {
+            if (extra_brand != brand_enum::NULL_BRAND && e_idx < max_brands) {
                 brand_scoreboard[e_idx].score++;
             }
 
