@@ -1,12 +1,11 @@
 # vmaware-rs
 
-Rust bindings to [VMAware](https://github.com/NotRequiem/VMAware), a cross-platform C++ single-header library for VM detection.
+Rust bindings to [VMAware](https://github.com/NotRequiem/VMAware), a cross-platform library for virtual machine detection.
 
 ## Requirements
 
-A working C++ compiler
-
-Libclang (because rust-bindgen uses it)
+- C++ compiler
+- libclang
 
 ## Usage
 
