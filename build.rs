@@ -23,7 +23,10 @@ fn main() {
         .rustified_enum("VM_brand_enum");
 
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        builder = builder.clang_arg("-fms-compatibility");
+        // pretend to be MSVC 19.30 to fix __cpuid_count build error
+        builder = builder
+            .clang_arg("-fms-compatibility")
+            .clang_arg("-fms-compatibility-version=19.30"); 
     }
     
     let bindings = builder
