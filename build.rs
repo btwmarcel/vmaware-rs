@@ -6,13 +6,12 @@ fn main() {
         .cpp(true)
         .include("deps")
         .include("src")
-        .file("src/wrapper.cpp");
-
-    build.flag_if_supported("-std=c++20");
+        .file("src/wrapper.cpp")
+        .std("c++20");
 
     build.compile("vmaware-bridge");
 
-    let bindings = bindgen::Builder::default()
+    let mut builder = bindgen::Builder::default()
         .header("deps/vmaware.hpp")
         .clang_arg("-x")
         .clang_arg("c++")
@@ -21,7 +20,13 @@ fn main() {
         .allowlist_type("VM_brand_enum")
         .allowlist_var("VM_technique_count")
         .rustified_enum("VM_enum_flags")
-        .rustified_enum("VM_brand_enum")
+        .rustified_enum("VM_brand_enum");
+
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        builder = builder.clang_arg("-fms-compatibility");
+    }
+    
+    let bindings = builder
         .generate()
         .expect("bindgen failed to generate bindings");
 
