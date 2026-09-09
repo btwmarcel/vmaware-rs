@@ -7007,10 +7007,11 @@ public:
         }
 
         /* Calculation of minimum threshold for instrution latency */
-        double threshold = 2.5;
+        double threshold = 2.75;
+        bool check_nested = false;
         if (util::hyper_x() == HYPERV_HOST) {
             vma_debug("TIMER: Hyper-V detected, running nested checks");
-            threshold = 100.0;
+            check_nested = true;
         }
 
         static timer::cache_state state;
@@ -7080,7 +7081,6 @@ public:
         }
 
         /* Prepare threads for check */
-        vma_debug("TIMER: CPU supports SERIALIZE: ", serialize_available);
         GROUP_AFFINITY old_affinity{};
         const DWORD old_process_priority = GetPriorityClass(current_process);
         const int old_thread_priority = GetThreadPriority(current_thread);
@@ -7255,136 +7255,138 @@ public:
             volatile timer::timer_tick_t* const counter_ptr = &state.counter;
 
             /* Inside the timing windows, there must be zero memory output (no stack arrays can be written to), zero conditional branches and zero stack spilling (no register push/pops) */
-            if (serialize_available) {
-                while (valid < batch_size && invalid < local_max_attempts) {
-                    /* cpuid and serialize/lfence interpolated so that any turbo boost, thermal throttling, speculation (for the loop overhead itself, not for the serializing instructions), etc affects samples equally */
-                    timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
+            if (!check_nested) {
+                if (serialize_available) {
+                    while (valid < batch_size && invalid < local_max_attempts) {
+                        /* cpuid and serialize/lfence interpolated so that any turbo boost, thermal throttling, speculation (for the loop overhead itself, not for the serializing instructions), etc affects samples equally */
+                        timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
 
-                    /* This is done as a counter to both legitimate and malicious hypervisors interrupts that may pause the counter thread while we measure */
-                    sync = *counter_ptr;
-                    while (*counter_ptr == sync); /* infer if counter got enough quantum momentum (so its currently scheduled) */
+                        /* This is done as a counter to both legitimate and malicious hypervisors interrupts that may pause the counter thread while we measure */
+                        sync = *counter_ptr;
+                        while (*counter_ptr == sync); /* infer if counter got enough quantum momentum (so its currently scheduled) */
 
-                    /*
-                     * SERIALIZE/LFENCE check is before CPUID on purpose, so that possible pauses when cpuid is executed do not affect SERIALIZE/LFENCE too. The hv needs to wait for cpuid to pause the thread
-                     * the amount of instructions (8 in case of LFENCE) are enough for the Cross-Core/Cross-CCD MESI RFO cache bounce in the data race so that the counter thread sees an increment
-                     */
-                    sync = *counter_ptr;
-                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                    while (*counter_ptr == sync); /* fastest busy-waiting strategy, PAUSE can conditionally exit, calling APIs like SwitchToThread() would be even worse */
+                        /*
+                         * SERIALIZE/LFENCE check is before CPUID on purpose, so that possible pauses when cpuid is executed do not affect SERIALIZE/LFENCE too. The hv needs to wait for cpuid to pause the thread
+                         * the amount of instructions (8 in case of LFENCE) are enough for the Cross-Core/Cross-CCD MESI RFO cache bounce in the data race so that the counter thread sees an increment
+                         */
+                        sync = *counter_ptr;
+                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                        while (*counter_ptr == sync); /* fastest busy-waiting strategy, PAUSE can conditionally exit, calling APIs like SwitchToThread() would be even worse */
 
-                    r_pre = *counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    _serialize();
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    r_post = *counter_ptr;
+                        r_pre = *counter_ptr;
+                        std::atomic_signal_fence(std::memory_order_acq_rel);
+                        _serialize();
+                        std::atomic_signal_fence(std::memory_order_acq_rel);
+                        r_post = *counter_ptr;
 
-                    sync = *counter_ptr;
-                    while (*counter_ptr == sync); /* sync to our counter tick again by spam hitting L3 */
-                    sync = *counter_ptr;
-                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                    while (*counter_ptr == sync); /* and again */
+                        sync = *counter_ptr;
+                        while (*counter_ptr == sync); /* sync to our counter tick again by spam hitting L3 */
+                        sync = *counter_ptr;
+                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                        while (*counter_ptr == sync); /* and again */
 
-                    v_pre = *counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_seq_cst); /* _ReadWriteBarrier() aka dont emit runtime fences */
-                #if (VMAWARE_GCC || VMAWARE_CLANG)  
-                    size_t a = 0;
-                    size_t b = 0, c = 0, d = 0;
-                    __asm__ volatile (
-                        "cpuid"
-                        : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
-                    );
-                #else
-                    int dummy[4];
-                    __cpuid(dummy, 0);
-                #endif
-                    std::atomic_signal_fence(std::memory_order_seq_cst);
-                    v_post = *counter_ptr;
+                        v_pre = *counter_ptr;
+                        std::atomic_signal_fence(std::memory_order_seq_cst); /* _ReadWriteBarrier() aka dont emit runtime fences */
+                    #if (VMAWARE_GCC || VMAWARE_CLANG)  
+                        size_t a = 0;
+                        size_t b = 0, c = 0, d = 0;
+                        __asm__ volatile (
+                            "cpuid"
+                            : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
+                        );
+                    #else   
+                        int dummy[4];
+                        __cpuid(dummy, 0);
+                    #endif
+                        std::atomic_signal_fence(std::memory_order_seq_cst);
+                        v_post = *counter_ptr;
 
-                    /* We dont filter by cycles spent here (for example by querying thread cycle time) because the kernel would use TSC and the point of this function is to not use TSC or any other clock */
-                    if (v_post > v_pre && r_post > r_pre) {
-                        vm_samples[valid] = v_post - v_pre;
-                        ref_samples[valid] = r_post - r_pre;
-                        valid++;
+                        /* We dont filter by cycles spent here (for example by querying thread cycle time) because the kernel would use TSC and the point of this function is to not use TSC or any other clock */
+                        if (v_post > v_pre && r_post > r_pre) {
+                            vm_samples[valid] = v_post - v_pre;
+                            ref_samples[valid] = r_post - r_pre;
+                            valid++;
+                        }
+                        else {
+                            invalid++;
+                        }
+
+                        /* Burn cycles executing a random number of instructions in each loop iteration, so that the hypervisor doesn't know when to pause the counter thread */
+                        timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
                     }
-                    else {
-                        invalid++;
-                    }
+                }
+                else {
+                    while (valid < batch_size && invalid < local_max_attempts) {
+                        /* This block's logic is the same as above but using LFENCE instead of SERIALIZE, read code comments above */
+                        timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
 
-                    /* Burn cycles executing a random number of instructions in each loop iteration, so that the hypervisor doesn't know when to pause the counter thread */
-                    timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                        sync = *counter_ptr;
+                        while (*counter_ptr == sync);
+                        sync = *counter_ptr;
+                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                        while (*counter_ptr == sync);
+
+                        r_pre = *counter_ptr;
+                        std::atomic_signal_fence(std::memory_order_acq_rel);
+                        _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
+                        _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
+                        std::atomic_signal_fence(std::memory_order_acq_rel);
+                        r_post = *counter_ptr;
+
+                        sync = *counter_ptr;
+                        while (*counter_ptr == sync);
+                        sync = *counter_ptr;
+                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                        while (*counter_ptr == sync);
+
+                        v_pre = *counter_ptr;
+                        std::atomic_signal_fence(std::memory_order_seq_cst);
+                    #if (VMAWARE_GCC || VMAWARE_CLANG)
+                        size_t a = 0;
+                        size_t b = 0, c = 0, d = 0;
+                        __asm__ volatile (
+                            "cpuid"
+                            : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
+                        );
+                    #else   
+                        int dummy[4];
+                        __cpuid(dummy, 0);
+                    #endif
+                        std::atomic_signal_fence(std::memory_order_seq_cst);
+                        v_post = *counter_ptr;
+
+                        if (v_post > v_pre && r_post > r_pre) {
+                            vm_samples[valid] = v_post - v_pre;
+                            ref_samples[valid] = r_post - r_pre;
+                            valid++;
+                        }
+                        else {
+                            invalid++;
+                        }
+
+                        timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                    }
+                }
+
+                if (valid > 0) {
+                    /* Discard the unused default-initialized zero-elements */
+                    std::vector<timer::timer_tick_t> active_vm_samples(vm_samples.begin(), vm_samples.begin() + valid);
+                    std::vector<timer::timer_tick_t> active_ref_samples(ref_samples.begin(), ref_samples.begin() + valid);
+
+                    /* Check for lowest dense cluster with no interrupt spikes, filter noise we can't directly detect (SMIs, NMIs, etc) */
+                    const timer::timer_tick_t cpuid_l = timer::engine::calculate_latency(active_vm_samples);
+                    const timer::timer_tick_t ref_l = timer::engine::calculate_latency(active_ref_samples);
+
+                    /* Record the cleanest/lowest latency observed across the independent trials */
+                    if (cpuid_l < best_cpuid_l) {
+                        best_cpuid_l = cpuid_l;
+                    }
+                    if (ref_l < best_ref_l) {
+                        best_ref_l = ref_l;
+                    }
                 }
             }
-            else {
-                while (valid < batch_size && invalid < local_max_attempts) {
-                    /* This block's logic is the same as above but using LFENCE instead of SERIALIZE, read code comments above */
-                    timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
-
-                    sync = *counter_ptr;
-                    while (*counter_ptr == sync);
-                    sync = *counter_ptr;
-                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                    while (*counter_ptr == sync);
-
-                    r_pre = *counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
-                    _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
-                    std::atomic_signal_fence(std::memory_order_acq_rel);
-                    r_post = *counter_ptr;
-
-                    sync = *counter_ptr;
-                    while (*counter_ptr == sync);
-                    sync = *counter_ptr;
-                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                    while (*counter_ptr == sync);
-
-                    v_pre = *counter_ptr;
-                    std::atomic_signal_fence(std::memory_order_seq_cst);
-                #if (VMAWARE_GCC || VMAWARE_CLANG)
-                    size_t a = 0;
-                    size_t b = 0, c = 0, d = 0;
-                    __asm__ volatile (
-                        "cpuid"
-                        : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
-                    );
-                #else
-                    int dummy[4];
-                    __cpuid(dummy, 0);
-                #endif
-                    std::atomic_signal_fence(std::memory_order_seq_cst);
-                    v_post = *counter_ptr;
-
-                    if (v_post > v_pre && r_post > r_pre) {
-                        vm_samples[valid] = v_post - v_pre;
-                        ref_samples[valid] = r_post - r_pre;
-                        valid++;
-                    }
-                    else {
-                        invalid++;
-                    }
-
-                    timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
-                }
-            }
-
-            if (valid > 0) {
-                /* Discard the unused default-initialized zero-elements */
-                std::vector<timer::timer_tick_t> active_vm_samples(vm_samples.begin(), vm_samples.begin() + valid);
-                std::vector<timer::timer_tick_t> active_ref_samples(ref_samples.begin(), ref_samples.begin() + valid);
-
-                /* Check for lowest dense cluster with no interrupt spikes, filter noise we can't directly detect (SMIs, NMIs, etc) */
-                const timer::timer_tick_t cpuid_l = timer::engine::calculate_latency(active_vm_samples);
-                const timer::timer_tick_t ref_l = timer::engine::calculate_latency(active_ref_samples);
-
-                /* Record the cleanest/lowest latency observed across the independent trials */
-                if (cpuid_l < best_cpuid_l) {
-                    best_cpuid_l = cpuid_l;
-                }
-                if (ref_l < best_ref_l) {
-                    best_ref_l = ref_l;
-                }
-            }
-
+            
             valid = 0;
             invalid = 0;
 
@@ -7460,22 +7462,25 @@ public:
         t1.join();
 
         constexpr auto uninitialized_tick = (std::numeric_limits<timer::timer_tick_t>::max)();
-        const bool invalid_measurement = (best_ref_l == uninitialized_tick && best_cpuid_l == uninitialized_tick) || (best_db_l == uninitialized_tick && best_api_l == uninitialized_tick);
+        const bool invalid_measurement = (!check_nested && best_ref_l == uninitialized_tick && best_cpuid_l == uninitialized_tick) || (best_db_l == uninitialized_tick && best_api_l == uninitialized_tick);
 
         /* Analyze instruction latency results and report exactly what VMAware found */
         if (!invalid_measurement) {
-            /* VMM = Time spent in hypervisor and bare metal; nVMM = Time spent in bare metal */
-            const double latency_ratio = best_ref_l ? (double)best_cpuid_l / (double)best_ref_l : 0;
-            vma_debug("TIMER: Instruction > VMM -> ", best_cpuid_l, " | nVMM -> ", best_ref_l, " | Ratio -> ", latency_ratio);
+            if (!check_nested) {
+                /* VMM = Time spent in hypervisor and bare metal; nVMM = Time spent in bare metal */
+                const double latency_ratio = best_ref_l ? (double)best_cpuid_l / (double)best_ref_l : 0;
+                vma_debug("TIMER: CPU supports SERIALIZE: ", serialize_available);
+                vma_debug("TIMER: Instruction > VMM -> ", best_cpuid_l, " | nVMM -> ", best_ref_l, " | Ratio -> ", latency_ratio);
 
-            /* High latency can occur even with CPUID interception disabled if vCPU pinning is not 1:1, thus detecting the hypervisor, as this is a cache-based counter */
-            if (latency_ratio >= threshold) {
-                vma_debug("TIMER: Detected #VMEXIT latency"); 
-                hypervisor_detected = true;
-            }
-            else if (best_cpuid_l >= 12000 || best_ref_l >= 12000) { /* If latency is abnormally high, it means something was spamming interrupts */
-                vma_debug("TIMER: Detected artificial IPI delivery to timing threads");
-                hypervisor_detected = true;
+                /* High latency can occur even with CPUID interception disabled if vCPU pinning is not 1:1, thus detecting the hypervisor, as this is a cache-based counter */
+                if (latency_ratio >= threshold) {
+                    vma_debug("TIMER: Detected #VMEXIT latency"); 
+                    hypervisor_detected = true;
+                }
+                else if (best_cpuid_l >= 12000 || best_ref_l >= 12000) { /* If latency is abnormally high, it means something was spamming interrupts */
+                    vma_debug("TIMER: Detected artificial IPI delivery to timing threads");
+                    hypervisor_detected = true;
+                }
             }
 
             const double exception_ratio = best_db_l ? (double)best_db_l / (double)best_api_l : 0.0;
@@ -8902,26 +8907,26 @@ public:
         };
     #pragma pack(pop)
 
-        constexpr std::array<const char*, 24> targets = { {
+        constexpr std::array<const char*, 23> targets = { {
             "Parallels Software", "Parallels(R)",
             "innotek",            "Oracle",   "VirtualBox", "vbox", "VBOX",
             "VMware, Inc.",       "VMware",   "VMWARE",     "VMW0003",
             "QEMU",               "pc-q35",   "Q35 +",      "FWCF",     "BOCHS",
-            "ovmf",               "edk ii unknown", "WAET", "S3 Corp.", "Virtual Machine", "VS2005R2",
+            "ovmf",               "edk ii unknown", "WAET", "S3 Corp.", "VS2005R2",
             "BXPC",               "Xen"
         } };
 
-        constexpr std::array<brand_enum, 24> brands_map = { {
+        constexpr std::array<brand_enum, 23> brands_map = { {
             brand_enum::PARALLELS,  brand_enum::PARALLELS,
             brand_enum::VBOX,       brand_enum::VBOX,       brand_enum::VBOX,       brand_enum::VBOX,       brand_enum::VBOX,
             brand_enum::VMWARE,     brand_enum::VMWARE,     brand_enum::VMWARE,     brand_enum::VMWARE,
             brand_enum::QEMU,       brand_enum::QEMU,       brand_enum::QEMU,       brand_enum::QEMU,       brand_enum::BOCHS,
-            brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND,
+            brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND, brand_enum::NULL_BRAND,
             brand_enum::BOCHS,      brand_enum::XEN
         } };
 
         struct array_validator {
-            static constexpr bool verify_no_nulls(const std::array<const char*, 24>& arr, size_t i) {
+            static constexpr bool verify_no_nulls(const std::array<const char*, 23>& arr, size_t i) {
                 return (i == arr.size())
                     ? true
                     : (arr[i] != nullptr && verify_no_nulls(arr, i + 1));
@@ -9166,6 +9171,7 @@ public:
                         constexpr char pxen[] = "PXEN";
                         constexpr size_t pxen_len = sizeof(pxen) - 1;
                         if (!find_pattern(pxen, pxen_len)) {
+                            vma_debug("FIRMWARE: XEN detected");
                             return core::add(brand_enum::XEN);
                         }
                         else {
@@ -9178,6 +9184,7 @@ public:
                         constexpr char bochs[] = "BOCHS";
                         constexpr size_t bochs_len = sizeof(bochs) - 1;
                         if (!find_pattern(bochs, bochs_len)) {
+                            vma_debug("FIRMWARE: BOCHS detected");
                             return core::add(brand_enum::BOCHS);
                         }
                         else {
