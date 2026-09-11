@@ -3939,12 +3939,36 @@ public:
                 }
 
                 if (unique_cores_count < 2) {
-                    return {}; /* Single physical core(e.g. 1 core with SMT enabled) */
+                    return {}; /* Single physical core (e.g. 1 core with SMT enabled) */
                 }
 
-                /* Golden Rule 2: Counter thread always in middle physical core(or core index 1 if exactly 2 cores) */
-                const DWORD counter_pos = (unique_cores_count == 2) ? 1u : (unique_cores_count / 2u);
-                const DWORD counter_logical = core_to_primary_logical[counter_pos];
+                /* Determine highest performance core class (P-cores on Intel/ARM hybrid) */
+                BYTE max_efficiency = 0;
+                for (DWORD i = 0; i < active_cpu_count; ++i) {
+                    const DWORD log = idxs[i];
+                    if (group_cpus[log].EfficiencyClass > max_efficiency) {
+                        max_efficiency = group_cpus[log].EfficiencyClass;
+                    }
+                }
+
+                /* Filter physical cores belonging to the highest-performance tier (handles interleaved Arrow Lake mapping) */
+                DWORD perf_cores_count = 0;
+                DWORD perf_core_to_primary_logical[64]{};
+
+                for (DWORD i = 0; i < unique_cores_count; ++i) {
+                    const DWORD log = core_to_primary_logical[i];
+                    if (group_cpus[log].EfficiencyClass == max_efficiency) {
+                        perf_core_to_primary_logical[perf_cores_count++] = log;
+                    }
+                }
+
+                /* Golden Rule 2: Counter thread always in middle physical core of the highest-performance core pool */
+                const bool use_perf_pool = (perf_cores_count >= 2);
+                const DWORD pool_count = use_perf_pool ? perf_cores_count : unique_cores_count;
+                const DWORD* const pool_to_logical = use_perf_pool ? perf_core_to_primary_logical : core_to_primary_logical;
+
+                const DWORD counter_pos = (pool_count == 2) ? 1u : (pool_count / 2u);
+                const DWORD counter_logical = pool_to_logical[counter_pos];
                 const auto& counter_cpu = group_cpus[counter_logical];
 
                 if (counter_cpu.CoreId == 0xFFFFFFFFu) {
@@ -3956,14 +3980,6 @@ public:
                     aff.Group = target_group;
                     aff.Mask = (1ull << counter_logical);
                     return aff;
-                }
-
-                BYTE max_efficiency = 0;
-                for (DWORD i = 0; i < active_cpu_count; ++i) {
-                    const DWORD log = idxs[i];
-                    if (group_cpus[log].EfficiencyClass > max_efficiency) {
-                        max_efficiency = group_cpus[log].EfficiencyClass;
-                    }
                 }
 
                 const DWORD core0_id = group_cpus[idxs[0]].CoreId;
@@ -3988,12 +4004,12 @@ public:
 
                     int score = 0;
 
-                    /* Silver Rule 1: Same NUMA Node alignment (avoids cross-socket interconnect latency) */
+                    /* Silver Rule 1: Same NUMA Node alignment */
                     if (cand_cpu.NumaNode != 0xFFFFFFFFu && cand_cpu.NumaNode == counter_cpu.NumaNode) {
                         score += 1000;
                     }
 
-                    /* Silver Rule 1: Same L3 Cache Slice / CCD Domain (avoids AMD Infinity Fabric cross-CCD hops) */
+                    /* Silver Rule 1: Same L3 Cache Slice / CCD Domain */
                     if (cand_cpu.L3CacheId != 0xFFFFFFFFu && cand_cpu.L3CacheId == counter_cpu.L3CacheId) {
                         score += 500;
                     }
@@ -4003,9 +4019,14 @@ public:
                         score += 800;
                     }
 
-                    /* Silver Rule 3: Shared L2 Cluster Penalty (avoids shared E-core 4-core cluster controllers) */
+                    /* Silver Rule 3: Shared L2 evaluation (penalize Intel E-core clusters, reward AMD compute modules) */
                     if (cand_cpu.L2CacheId != 0xFFFFFFFFu && cand_cpu.L2CacheId == counter_cpu.L2CacheId) {
-                        score -= 800;
+                        if (cpu::is_intel()) {
+                            score -= 800;
+                        }
+                        else {
+                            score += 750;
+                        }
                     }
 
                     /* Silver Rule 4: Same Core Type / DVFS Domain alignment */
@@ -7488,7 +7509,6 @@ public:
 
             if (exception_ratio >= 2.5) {
                 vma_debug("TIMER: Detected #DB interception latency");
-                vma_debug("TIMER: If you have #DB interception disabled, it means you're running under nested");
                 hypervisor_detected = true;
             }
         }
@@ -9166,19 +9186,6 @@ public:
                 }
 
                 if (find_pattern(pattern, pattern_len)) {
-                    /* Special handling for Xen: must not have PXEN to prevent false flagging some bare metal systems */
-                    if (strcmp(pattern, "Xen") == 0) {
-                        constexpr char pxen[] = "PXEN";
-                        constexpr size_t pxen_len = sizeof(pxen) - 1;
-                        if (!find_pattern(pxen, pxen_len)) {
-                            vma_debug("FIRMWARE: XEN detected");
-                            return core::add(brand_enum::XEN);
-                        }
-                        else {
-                            continue;
-                        }
-                    }
-
                     /* Special handling for BOCHS: if BXPC is detected, check if "BOCHS" is present too */
                     if (strcmp(pattern, "BXPC") == 0) {
                         constexpr char bochs[] = "BOCHS";
@@ -12221,19 +12228,42 @@ public:
 
         struct exception_handler {
             static VMAWARE_NOINLINE int execute(const unsigned int code, struct _EXCEPTION_POINTERS* ep, volatile ULONG_PTR* out_trap_ip, volatile bool* out_anomaly) {
-                if (code == EXCEPTION_SINGLE_STEP && ep && ep->ContextRecord) {
-                #if (VMAWARE_X86_64)
-                    *out_trap_ip = ep->ContextRecord->Rip;
-                #else
-                    * out_trap_ip = ep->ContextRecord->Eip;
-                #endif
+                if (!ep || !ep->ContextRecord) {
+                    return EXCEPTION_EXECUTE_HANDLER;
+                }
+
+            #if (VMAWARE_X86_64)
+                ULONG_PTR* ip = &ep->ContextRecord->Rip;
+            #else
+                ULONG_PTR* ip = &ep->ContextRecord->Eip;
+            #endif
+
+                if (code == EXCEPTION_SINGLE_STEP) {
+                    *out_trap_ip = *ip;
                     ep->ContextRecord->EFlags &= ~0x100; /* clear TF to resume execution */
                     return EXCEPTION_CONTINUE_EXECUTION;
                 }
 
-                vma_debug("INTERRUPT_SHADOW: Exception anomaly detected, hypervisor seems to be present with CPUID interception disabled");
+                /* KVM injects #UD by default */
+                vma_debug("INTERRUPT_SHADOW: Exception anomaly detected, hypervisor seems to be present.");
                 *out_anomaly = true;
-                return EXCEPTION_EXECUTE_HANDLER;
+                *out_trap_ip = *ip; /* Record where it failed (will be at RDPRU offset 18) */
+
+                unsigned char* instruction = reinterpret_cast<unsigned char*>(*ip);
+
+                /* Check if it crashed exactly on RDPRU(0x0F, 0x01, 0xFD) */
+                if (instruction[0] == 0x0F && instruction[1] == 0x01 && instruction[2] == 0xFD) {
+                    *ip += 3; /* Advance RIP by 3 bytes to land on pop rbx (offset 21) */
+                }
+                /* Check if it crashed on CPUID(0x0F, 0xA2), for the earlier baremetal_target check */
+                else if (instruction[0] == 0x0F && instruction[1] == 0xA2) {
+                    *ip += 2; /* Advance RIP by 2 bytes to land on pop ebx */
+                }
+
+                ep->ContextRecord->EFlags &= ~0x100; /* Force clear TF just in case */
+
+                /* Resume execution at the fixed IP to bypass the need for stack unwinding */
+                return EXCEPTION_CONTINUE_EXECUTION;
             }
         };
 
@@ -15615,21 +15645,21 @@ public:
      * ============================================================================================== */
     struct core {
         struct technique {
-            u8 points = 0;                /* this is the certainty score between 0 and 100 */
-            bool(*run)();                 /* this is the technique function itself */
+            u8 points = 0;                /* This is the certainty score between 0 and 100 */
+            bool(*run)();                 /* This is the technique function itself */
 
             constexpr technique() : run(nullptr) {}
             constexpr technique(u8 points, bool(*run)()) : points(points), run(run) {}
         };
 
-        struct custom_technique { /* for custom techniques the user can implement */
+        struct custom_technique { /* For custom techniques the user can implement */
             u8 points;
             u16 id;
             bool(*run)();
         };
 
         /* Entry for the initialization list */
-        struct technique_entry { 
+        struct technique_entry {
             enum_flags id;
             technique tech;
         };
@@ -15646,7 +15676,7 @@ public:
          */
         static std::array<technique, enum_size + 1> technique_table;
 
-        static std::vector<VM::core::custom_technique> custom_table; /* users should not have a limit of how many functions they should add, this is the only exception of a heap-allocated object in our core */
+        static std::vector<VM::core::custom_technique> custom_table; /* Users should not have a limit of how many functions they should add, this is the only exception of a heap-allocated object in our core */
         static size_t custom_table_size;
 
         static std::array<brand_entry, MAX_BRANDS> brand_scoreboard;
@@ -15671,8 +15701,16 @@ public:
         }
 
         static bool add_score(const brand_enum p_brand, const brand_enum extra_brand, const u8 score) noexcept {
-            last_detected_brand = p_brand;
-            last_detected_score = score; /* Store for the engine to read */
+            if (p_brand != brand_enum::NULL_BRAND) {
+                last_detected_brand = p_brand;
+            }
+            else if (extra_brand != brand_enum::NULL_BRAND) {
+                last_detected_brand = extra_brand;
+            }
+
+            if (score > 0) {
+                last_detected_score = score; /* Store for the engine to read */
+            }
 
             constexpr size_t max_brands = sizeof(brand_scoreboard) / sizeof(brand_scoreboard[0]);
 
@@ -15776,12 +15814,26 @@ public:
                         }
                     }
 
+                    /*
+                     * For things like VM::detect() and VM::percentage(),
+                     * a score of 150+ is guaranteed to be a VM, so
+                     * there's no point in running the rest of the techniques
+                     * (unless the threshold is set to be higher, but it's the
+                     * same story here nonetheless, except the threshold is 300)
+                     */
+                    if (shortcut && (points >= threshold_points)) {
+                        return points;
+                    }
+
                     continue;
                 }
 
                 /* Reset the last detected brand before running */
                 last_detected_brand = brand_enum::NULL_BRAND;
                 last_detected_score = 0;
+
+                /* Snapshot scoreboard to prevent score leakage if technique returns false */
+                const auto scoreboard_snapshot = brand_scoreboard;
 
                 /* Run the technique */
                 const bool result = technique_data.run();
@@ -15803,6 +15855,9 @@ public:
                     memo::cache_store(technique_macro, result, points_to_add, detected_brand);
                 }
                 else {
+                    brand_scoreboard = scoreboard_snapshot;
+                    last_detected_brand = brand_enum::NULL_BRAND;
+                    last_detected_score = 0;
                     memo::cache_store(technique_macro, false, 0);
                 }
 
@@ -15821,6 +15876,15 @@ public:
             /* For custom VM techniques, won't be used most of the time */
             if (VMAWARE_UNLIKELY(!core::custom_table.empty())) {
                 for (const auto& technique : core::custom_table) {
+                    if (shortcut && (points >= threshold_points)) {
+                        return points;
+                    }
+
+                    /* Skip empty entries */
+                    if (!technique.run) {
+                        continue;
+                    }
+
                     /* If cached, return that result */
                     if (memo::is_cached(technique.id)) {
                         const memo::data_t data = memo::cache_fetch(technique.id);
@@ -15828,25 +15892,56 @@ public:
                         if (data.result) {
                             points += data.points;
                             detected_count_num++;
+
+                            if (data.brand_name != brand_enum::NULL_BRAND) {
+                                add(data.brand_name);
+                            }
                         }
+
+                        if (shortcut && (points >= threshold_points)) {
+                            return points;
+                        }
+
                         continue;
                     }
+
+                    /* Reset the last detected brand before running */
+                    last_detected_brand = brand_enum::NULL_BRAND;
+                    last_detected_score = 0;
+
+                    const auto scoreboard_snapshot = brand_scoreboard;
 
                     /* Run the custom technique */
                     const bool result = technique.run();
 
                     /* Accumulate a few important values */
                     if (result) {
-                        points += technique.points;
+                        const u8 points_to_add = (last_detected_score > 0) ? last_detected_score : technique.points;
+
+                        points += points_to_add;
                         detected_count_num++;
+
+                        /* Retrieve the brand that was set during execution (if any) */
+                        const enum brand_enum detected_brand = last_detected_brand;
+
+                        /* Cache the result */
+                        memo::cache_store(
+                            technique.id,
+                            result,
+                            points_to_add,
+                            detected_brand
+                        );
+                    }
+                    else {
+                        brand_scoreboard = scoreboard_snapshot;
+                        last_detected_brand = brand_enum::NULL_BRAND;
+                        last_detected_score = 0;
+                        memo::cache_store(technique.id, false, 0);
                     }
 
-                    /* Cache the result */
-                    memo::cache_store(
-                        technique.id,
-                        result,
-                        technique.points
-                    );
+                    if (shortcut && (points >= threshold_points)) {
+                        return points;
+                    }
                 }
             }
 
@@ -15861,9 +15956,20 @@ public:
             flagset flag_collector = generate_default();
 
             VMAWARE_CONSTEXPR void enable(const enum_flags flag) noexcept {
-                const auto idx = static_cast<size_t>(flag);
-                if (idx < flag_collector.size()) {
-                    flag_collector.set(idx, true);
+                if (flag == ALL) {
+                    flag_collector |= generate_all();
+                }
+                else if (flag == DEFAULT) {
+                    flag_collector |= generate_default();
+                }
+                else if (flag == EXPERIMENTAL) {
+                    disable_experimental_techniques(flag_collector);
+                }
+                else {
+                    const auto idx = static_cast<size_t>(flag);
+                    if (idx < flag_collector.size()) {
+                        flag_collector.set(idx, true);
+                    }
                 }
             }
 
@@ -15879,7 +15985,7 @@ public:
             }
         };
 
-        static void generate_default(flagset& flags) noexcept {
+        static flagset generate_default() noexcept {
             static const flagset default_flags = []() {
                 flagset f;
                 f.set();
@@ -15903,17 +16009,15 @@ public:
                 return f;
             }();
 
-            flags = default_flags;
+            return default_flags;
         }
 
-        static flagset generate_default() noexcept {
-            flagset flags;
-            generate_default(flags);
-            return flags;
+        static void generate_default(flagset& flags) noexcept {
+            flags = generate_default();
         }
 
-        static void generate_all(flagset& flags) noexcept {
-            generate_default(flags);
+        static flagset generate_all() noexcept {
+            flagset flags = generate_default();
 
             for (const enum_flags technique : disabled_techniques) {
                 const auto idx = static_cast<size_t>(technique);
@@ -15921,6 +16025,12 @@ public:
                     flags.set(idx, true);
                 }
             }
+
+            return flags;
+        }
+
+        static void generate_all(flagset& flags) noexcept {
+            flags = generate_all();
         }
 
         static void reset_disabled_flagset() noexcept {
@@ -15929,6 +16039,15 @@ public:
                 const auto idx = static_cast<size_t>(technique);
                 if (idx < disabled_flag_collector.size()) {
                     disabled_flag_collector.set(idx, true);
+                }
+            }
+        }
+
+        static void disable_experimental_techniques(flagset& flags) noexcept {
+            for (const auto technique : experimental_techniques) {
+                const auto idx = static_cast<size_t>(technique);
+                if (idx < flags.size()) {
+                    flags.reset(idx);
                 }
             }
         }
@@ -15959,6 +16078,8 @@ public:
         static flagset arg_handler() noexcept {
             flagset collector;
             generate_default(collector);
+            collector &= ~disabled_flag_collector;
+            disabled_flag_collector.reset();
             return collector;
         }
 
@@ -15975,7 +16096,8 @@ public:
             };
 
             if (collector.test(DEFAULT)) {
-                generate_default(collector);
+                collector |= generate_default();
+                collector.reset(DEFAULT);
             }
 
             if (are_techniques_empty(collector)) {
@@ -15983,14 +16105,17 @@ public:
             }
 
             if (collector.test(ALL)) {
-                generate_all(collector);
+                collector |= generate_all();
+                collector.reset(ALL);
             }
 
             if (collector.test(EXPERIMENTAL)) {
-                disable_experimental_techniques();
+                disable_experimental_techniques(collector);
+                collector.reset(EXPERIMENTAL);
             }
 
             collector &= ~disabled_flag_collector;
+            disabled_flag_collector.reset();
 
             return collector;
         }
@@ -16001,15 +16126,18 @@ public:
             static_assert(verify_flags<Args...>(), "disabled argument handler only accepts enum_flags variables");
             static_assert(sizeof...(Args) > 0, "VM::DISABLE() must contain at least one flag");
 
+            flagset temp;
             using expander = int[];
             (void)expander {
-                0, (disabled_flag_collector.set(static_cast<size_t>(args), true), 0)...
+                0, (temp.set(static_cast<size_t>(args), true), 0)...
             };
 
             /* Check if a settings flag is set, which is not valid */
-            if (core::is_setting_flag_set(disabled_flag_collector)) {
+            if (core::is_setting_flag_set(temp)) {
                 throw std::invalid_argument("VM::DISABLE() must not contain a settings flag, they are disabled by default anyway");
             }
+
+            disabled_flag_collector |= temp;
         }
     };
 
@@ -16883,7 +17011,7 @@ std::array<VM::core::technique, VM::enum_size + 1> VM::core::technique_table = [
             {VM::MAC_SYS, {100, VM::mac_sys}},
         #endif
 
-        {VM::TIMER, {100, VM::timer}},
+        {VM::TIMER, {95, VM::timer}},
         {VM::THREAD_MISMATCH, {45, VM::thread_mismatch}},
         {VM::VMID, {100, VM::vmid}},
         {VM::CPU_BRAND, {95, VM::cpu_brand}},
