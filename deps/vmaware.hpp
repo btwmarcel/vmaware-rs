@@ -642,7 +642,7 @@
     #include <chrono>
 #endif
 
-#ifdef VMAWARE_DEBUG
+#if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1 
     #define vma_debug(...) VM::util::debug_msg(__VA_ARGS__)
 #else
     #define vma_debug(...)
@@ -838,7 +838,6 @@ public:
         DRIVERS,
         HANDLES,
         VIRTUAL_PROCESSORS,
-        AUDIO,
         DISPLAY,
         DLL,
         WINE,
@@ -9162,7 +9161,7 @@ public:
 
                     /* Motherboard resources mapped via PNP0A06 generic container on designated "GPER" virtual device */
                     if (find_pattern("GPER", 4) || find_pattern("PHPR", 4)) {
-                        if (find_pattern("PNP0C02", 7) || find_pattern("PNP0A06", 7)) {
+                        if (find_pattern("PNP0A06", 7)) {
                             vma_debug("FIRMWARE: Detected QEMU resource reservation container (GPER/PHPR)");
                             return core::add(brand_enum::QEMU);
                         }
@@ -11804,128 +11803,6 @@ public:
             (std::memcmp(object_name->Name.Buffer, expected_name.Buffer, expected_name.Length) != 0);
 
         return mismatch ? core::add(brand_enum::SANDBOXIE) : false;
-    }
-    
-    
-    /**
-     * @brief Check if no waveform-audio output devices are present in the system
-     * @category Windows
-     * @implements VM::AUDIO
-     */
-    [[nodiscard]] static bool audio() {
-        struct KEY_FULL_INFORMATION {
-            LARGE_INTEGER LastWriteTime;
-            ULONG         TitleIndex;
-            ULONG         ClassOffset;
-            ULONG         ClassLength;
-            ULONG         SubKeys;
-            ULONG         MaxNameLen;
-            ULONG         MaxClassLen;
-            ULONG         Values;
-            ULONG         MaxValueNameLen;
-            ULONG         MaxValueDataLen;
-            WCHAR         Class[1];
-        };
-        using PKEY_FULL_INFORMATION = KEY_FULL_INFORMATION*;
-
-        enum KEY_INFORMATION_CLASS {
-            KeyBasicInformation,
-            KeyNodeInformation,
-            KeyFullInformation,
-            KeyNameInformation,
-            KeyCachedInformation,
-            KeyFlagsInformation,
-            KeyVirtualizationInformation,
-            KeyHandleTagsInformation,
-            KeyTrustInformation,
-            KeyLayerInformation,
-            MaxKeyInfoClass
-        };
-
-        const HMODULE ntdll = memory::get_module(true);
-        if (!ntdll) {
-            return false;
-        }
-
-        constexpr const char* function_names[] = { "RtlInitUnicodeString", "NtOpenKey", "NtQueryKey", "NtClose" };
-        void* functions[ARRAYSIZE(function_names)] = {};
-        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
-
-        const auto rtl_init_unicode_string = reinterpret_cast<void(__stdcall*)(PUNICODE_STRING, PCWSTR)>(functions[0]);
-        const auto nt_open_key = reinterpret_cast<NTSTATUS(__stdcall*)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES)>(functions[1]);
-        const auto nt_query_key = reinterpret_cast<NTSTATUS(__stdcall*)(HANDLE, KEY_INFORMATION_CLASS, PVOID, ULONG, PULONG)>(functions[2]);
-        const auto nt_close = reinterpret_cast<NTSTATUS(__stdcall*)(HANDLE)>(functions[3]);
-
-        if (!rtl_init_unicode_string || !nt_open_key || !nt_query_key || !nt_close) {
-            return false;
-        }
-
-        /*
-         * We are checking for the presence of Audio Render devices
-         * Most legitimate user PCs have speakers or headphones (audio endpoints)
-         * Automated sandboxes and headless servers often have no audio devices configured
-         * We target the MMDevices\Audio\Render key where these endpoints are registered
-         */
-        const wchar_t* native_path = L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render";
-
-        UNICODE_STRING unicode_path;
-        rtl_init_unicode_string(&unicode_path, native_path);
-
-        OBJECT_ATTRIBUTES object_attributes;
-        RtlZeroMemory(&object_attributes, sizeof(object_attributes));
-        object_attributes.Length = sizeof(object_attributes);
-        object_attributes.ObjectName = &unicode_path;
-        object_attributes.Attributes = OBJ_CASE_INSENSITIVE;
-
-        HANDLE key = nullptr;
-
-        /*
-         * KEY_WOW64_64KEY (0x0100) forces the 32-bit execution environment to access
-         * the native 64-bit registry key rather than the redirected Wow6432Node path
-         */
-        const ACCESS_MASK desired_access = KEY_READ | KEY_WOW64_64KEY;
-
-        NTSTATUS st = nt_open_key(&key, desired_access, &object_attributes);
-        if (!NT_SUCCESS(st) || key == nullptr) {
-            return false;
-        }
-
-        constexpr KEY_INFORMATION_CLASS info_class = KeyFullInformation;
-        std::vector<BYTE> info_buffer(512);
-        ULONG returned_len = 0;
-
-        /*
-         * Query the key information. If the initial query fails, try resizing.
-         * If returned_len is unpopulated or invalid, fallback to a safe larger size.
-         */
-        st = nt_query_key(key, info_class, info_buffer.data(), static_cast<ULONG>(info_buffer.size()), &returned_len);
-
-        if (!NT_SUCCESS(st)) {
-            const ULONG target_size = (returned_len > info_buffer.size()) ? returned_len : 2048;
-            info_buffer.resize(target_size);
-            st = nt_query_key(key, info_class, info_buffer.data(), static_cast<ULONG>(info_buffer.size()), &returned_len);
-        }
-
-        bool has_subkeys = true;
-        bool query_successful = false;
-
-        if (NT_SUCCESS(st)) {
-            constexpr size_t subkeys_offset = offsetof(KEY_FULL_INFORMATION, SubKeys);
-            if (info_buffer.size() >= subkeys_offset + sizeof(ULONG)) {
-                ULONG subkeys_count = 0;
-                std::memcpy(&subkeys_count, info_buffer.data() + subkeys_offset, sizeof(ULONG));
-                has_subkeys = (subkeys_count > 0);
-                query_successful = true;
-            }
-        }
-
-        nt_close(key);
-
-        if (!query_successful) {
-            return false;
-        }
-
-        return !has_subkeys;
     }
     
     
@@ -16480,7 +16357,6 @@ public:
             case VIRTUAL_REGISTRY: return "VIRTUAL_REGISTRY";
             case FIRMWARE: return "FIRMWARE";
             case FILE_ACCESS_HISTORY: return "FILE_ACCESS_HISTORY";
-            case AUDIO: return "AUDIO";
             case CONTAINER_PID: return "CONTAINER_PID";
             case DEVICES: return "DEVICES";
             case ACPI_SIGNATURE: return "ACPI_SIGNATURE";
@@ -16948,7 +16824,6 @@ std::array<VM::core::technique, VM::enum_size + 1> VM::core::technique_table = [
             {VM::HANDLES, {100, VM::device_handles}},
             {VM::KERNEL_OBJECTS, {100, VM::kernel_objects}},
             {VM::DLL, {50, VM::dll}},
-            {VM::AUDIO, {25, VM::audio}},
             {VM::DISPLAY, {25, VM::display}},
             {VM::VIRTUAL_REGISTRY, {90, VM::virtual_registry}},
             {VM::MUTEX, {100, VM::mutex}},
