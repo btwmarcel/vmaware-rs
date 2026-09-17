@@ -854,7 +854,6 @@ public:
         KERNEL_OBJECTS,
         NVRAM,
         CPU_HEURISTIC,
-        CLOCK,
         MSR,
         KVM_INTERCEPTION,
         HYPERVISOR_HOOK,
@@ -6845,11 +6844,9 @@ public:
         const u32 actual = memo::thread_count::fetch();
         const bool model_expects_smt = matched->smt;
 
-        if (!model_expects_smt) {
-            if (is_smt_active()) {
-                vma_debug("THREAD_MISMATCH: CPU normally runs under SMT, but SMT was fully disabled on BIOS");
-                return false;
-            }
+        if (model_expects_smt && !is_smt_active()) {
+            vma_debug("THREAD_MISMATCH: CPU normally runs under SMT, but SMT was fully disabled on BIOS");
+            return false;
         }
 
         if (actual != matched->threads) {
@@ -13715,115 +13712,6 @@ public:
 
 
     /**
-     * @brief Check for the absence of system timers
-     * @category x86, Windows
-     * @implements VM::CLOCK
-     */
-    [[nodiscard]] static bool clock() {
-    #if (VMAWARE_ARM)
-        return false; /* ARM systems do not have the classic x86 timers */
-    #else   
-        if (util::is_x86_process_on_arm()) {
-            return false;
-        }
-
-        const char* manufacturer = nullptr;
-        const char* model = nullptr;
-
-        if (util::get_manufacturer_model(&manufacturer, &model)) {
-            const bool is_surface = string::contains_ci(model, "Surface");
-            const bool is_microsoft = string::contains_ci(manufacturer, "Microsoft");
-            const bool is_xiaomi = string::contains_ci(manufacturer, "XIAOMI");
-
-            if ((is_surface && is_microsoft) || is_xiaomi) {
-                vma_debug("Surface or Xiaomi device found, aborting PIT/AT check");
-                return false;
-            }
-        }
-
-        const HDEVINFO devs = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_PRESENT | DIGCF_ALLCLASSES);
-        if (devs == INVALID_HANDLE_VALUE) {
-            return false;
-        }
-
-        SP_DEVINFO_DATA dev_info{};
-        dev_info.cbSize = sizeof(dev_info);
-
-        BYTE* buffer = nullptr;
-        DWORD buffer_size = 0;
-        bool found = false;
-
-        for (DWORD i = 0; SetupDiEnumDeviceInfo(devs, i, &dev_info); ++i) {
-            DWORD type = 0;
-            DWORD needed = 0;
-
-            if (SetupDiGetDeviceRegistryPropertyW(
-                devs, &dev_info, SPDRP_HARDWAREID,
-                &type, nullptr, 0, &needed)) {
-                continue;
-            }
-
-            if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed == 0) {
-                continue;
-            }
-
-            #define DWORD_MAX 4294967295
-            if (needed > (DWORD_MAX - sizeof(wchar_t))) {
-                continue;
-            }
-
-            if (needed + sizeof(wchar_t) > buffer_size) {
-                DWORD new_size = needed + sizeof(wchar_t);
-                BYTE* new_buffer = static_cast<BYTE*>(realloc(buffer, new_size));
-
-                if (!new_buffer) {
-                    free(buffer);
-                    SetupDiDestroyDeviceInfoList(devs);
-                    return false;
-                }
-
-                buffer = new_buffer;
-                buffer_size = new_size;
-            }
-
-            if (!SetupDiGetDeviceRegistryPropertyW(
-                devs, &dev_info, SPDRP_HARDWAREID,
-                &type, buffer, buffer_size, &needed)) {
-                continue;
-            }
-
-            if (type != REG_MULTI_SZ) {
-                continue;
-            }
-
-            if (buffer != nullptr) {
-                reinterpret_cast<wchar_t*>(buffer)[needed / sizeof(wchar_t)] = L'\0';
-            }
-
-            const wchar_t* const buffer_start = reinterpret_cast<const wchar_t*>(buffer);
-            const wchar_t* const buffer_end = buffer_start + (needed / sizeof(wchar_t));
-
-            for (const wchar_t* s = buffer_start; s < buffer_end && *s; s += wcslen(s) + 1) {
-                if (_wcsicmp(s, L"ACPI\\PNP0100") == 0 ||
-                    _wcsicmp(s, L"PNP0100") == 0) {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (found) {
-                break;
-            }
-        }
-
-        free(buffer);
-        SetupDiDestroyDeviceInfoList(devs);
-        return !found;
-    #endif  
-    }
-
-
-    /**
      * @brief Check whether the hypervisor mishandles MSR behavior
      * @category Windows, x86
      * @implements VM::MSR
@@ -16501,7 +16389,6 @@ public:
             case KERNEL_OBJECTS: return "KERNEL_OBJECTS";
             case NVRAM: return "NVRAM";
             case CPU_HEURISTIC: return "CPU_HEURISTIC";
-            case CLOCK: return "CLOCK";
             case MSR: return "MSR";
             case KVM_INTERCEPTION: return "KVM_INTERCEPTION";
             case HYPERVISOR_HOOK: return "HYPERVISOR_HOOK";
@@ -16944,7 +16831,6 @@ std::array<VM::core::technique, VM::enum_size + 1> VM::core::technique_table = [
             {VM::NVRAM, {100, VM::nvram}},
             {VM::CPU_HEURISTIC, {90, VM::cpu_heuristic}},
             {VM::ACPI_SIGNATURE, {100, VM::acpi_signature}},
-            {VM::CLOCK, {45, VM::clock}},
             {VM::POWER_CAPABILITIES, {25, VM::power_capabilities}},
             {VM::GPU_CAPABILITIES, {20, VM::gpu_capabilities}},
             {VM::MSR, {100, VM::msr}},
