@@ -1100,7 +1100,7 @@ public:
     static u16 technique_count; /* get total number of techniques */
 
     static std::vector<enum_flags> disabled_techniques;
-    static constexpr std::array<enum_flags, 1> experimental_techniques{ { FIRMWARE } };
+    static constexpr std::array<enum_flags, 2> experimental_techniques{ { VCPU_SCHEDULING, EMULATION } };
 
     using brand_score_t = i32;
 
@@ -1245,7 +1245,7 @@ public:
         #endif
         }
 
-        [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) noexcept {
+        [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) {
         #if (VMAWARE_APPLE) 
             return false;
         #endif
@@ -1307,7 +1307,7 @@ public:
             return ((ecx == intel_ecx1) || (ecx == intel_ecx2));
         }
 
-        [[nodiscard]] static const char* get_brand() noexcept {
+        [[nodiscard]] static const char* get_brand() {
             if (VMAWARE_LIKELY(memo::cpu_brand::is_cached())) {
                 return memo::cpu_brand::fetch();
             }
@@ -1344,47 +1344,54 @@ public:
         #endif
         }
 
-        [[nodiscard]] static const char* cpu_manufacturer(const u32 leaf_id) {
-            static const char* leaf_40000000 = nullptr;
-            static const char* leaf_40000100 = nullptr;
+        [[nodiscard]] static const char* cpu_manufacturer(const u32 leaf_id) noexcept {
+            static char leaf_40000000[13] = { '\0' };
+            static char leaf_40000100[13] = { '\0' };
+            static bool init_40000000 = false;
+            static bool init_40000100 = false;
 
-            const char** cache = nullptr;
+            char* target = nullptr;
+            bool* is_cached = nullptr;
 
             switch (leaf_id) {
             case cpu::leaf::hypervisor:
-                cache = &leaf_40000000;
+                target = leaf_40000000;
+                is_cached = &init_40000000;
                 break;
             case cpu::leaf::hv_enlightenment:
-                cache = &leaf_40000100;
+                target = leaf_40000100;
+                is_cached = &init_40000100;
                 break;
             default:
                 /* VMAWARE_ASSUME(0); */
                 return "";
             }
 
-            if (*cache) {
-                return *cache;
+            if (target == nullptr || is_cached == nullptr) {
+                return "";
+            }
+
+            if (*is_cached) {
+                return target;
             }
 
             u32 eax = 0, ebx = 0, ecx = 0, edx = 0;
             cpu::cpuid(eax, ebx, ecx, edx, leaf_id);
 
+            *is_cached = true;
+
             if (ebx == 0 && ecx == 0 && edx == 0) {
-                *cache = "";
-                return *cache;
+                target[0] = '\0';
+                return target;
             }
 
-            static char buffers[2][13];
-
-            const size_t index = (leaf_id == cpu::leaf::hypervisor) ? 0 : 1;
-
+            /* Hypervisor vendor leaves return ASCII characters sequentially in EBX, ECX, EDX */
             const u32 regs[3] = { ebx, ecx, edx };
 
-            std::memcpy(buffers[index], regs, sizeof(regs));
-            buffers[index][12] = '\0';
+            std::memcpy(target, regs, sizeof(regs));
+            target[12] = '\0';
 
-            *cache = buffers[index];
-            return *cache;
+            return target;
         }
 
         struct stepping_struct {
@@ -1434,7 +1441,7 @@ public:
             const char* string;
         };
 
-        [[nodiscard]] static model_struct get_model() noexcept {
+        [[nodiscard]] static model_struct get_model() {
             const char* brand = get_brand();
 
             model_struct result { false, false, false, false, {} };
@@ -1566,15 +1573,13 @@ public:
 
         struct constexpr_hash {
             /* 8 rounds of CRC32-C bit reflection recursively */
-            static constexpr u32 crc32_bits(u32 crc, int bits) noexcept {
-                return (bits == 0) ? crc :
-                    crc32_bits((crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0), bits - 1);
+            static constexpr u32 crc32_bits(const u32 crc, int bits) noexcept {
+                return (bits == 0) ? crc : crc32_bits((crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0), bits - 1);
             }
 
             /* Over string */
-            static constexpr u32 crc32_str(const char* s, u32 crc) noexcept {
-                return (*s == '\0') ? crc :
-                    crc32_str(s + 1, crc32_bits(crc ^ static_cast<u8>(*s), 8));
+            static constexpr u32 crc32_str(const char* s, const u32 crc) noexcept {
+                return (!s || *s == '\0') ? crc : crc32_str(s + 1, crc32_bits(crc ^ static_cast<u8>(*s), 8));
             }
 
             static constexpr u32 get(const char* s) noexcept {
@@ -3739,7 +3744,7 @@ public:
             [[nodiscard]] static VMAWARE_CONSTEXPR u32 get_seed() noexcept {
                 constexpr char s[] = __DATE__ " " __TIME__ " " __FILE__ " " VMAWARE_STR(__LINE__);
                 u32 h = 2166136261u;
-                for (char c : s) {
+                for (const char c : s) {
                     if (!c) {
                         break;
                     }
@@ -3749,11 +3754,11 @@ public:
                 return h;
             }
 
-            [[nodiscard]] static constexpr size_t clamp_c11(const size_t val, const size_t min_val, const size_t max_val) noexcept {
+            [[nodiscard]] static constexpr std::size_t clamp_c11(const size_t val, const size_t min_val, const size_t max_val) noexcept {
                 return (val < min_val) ? min_val : ((val > max_val) ? max_val : val);
             }
 
-            [[nodiscard]] static size_t generate_batch_size(const u32 ct_seed) noexcept {
+            [[nodiscard]] static std::size_t generate_batch_size(const u32 ct_seed) {
                 /*
                  * Important so that hypervisor can't predict how many samples we will collect
                  * stack-only / ASLR-derived component (no APIs, no interceptable instructions by hypervisors)
@@ -3770,6 +3775,7 @@ public:
                 seed ^= static_cast<u64>(reinterpret_cast<std::uintptr_t>(&local2)) << 2;
                 seed ^= static_cast<u64>(reinterpret_cast<std::uintptr_t>(&local3)) << 3;
 
+                /* SplitMix64 / MurmurHash3 avalanche mixer */
                 seed ^= seed >> 33;
                 seed *= 0xff51afd7ed558ccdULL;
                 seed ^= seed >> 33;
@@ -3779,12 +3785,12 @@ public:
                 std::seed_seq seq{
                     static_cast<u32>(seed),
                     static_cast<u32>(seed >> 32),
-                    static_cast<u32>(seed ^ 0x9e3779b9u),
+                    static_cast<u32>((seed ^ (seed >> 32)) ^ 0x9e3779b9u),
                     ct_seed
                 };
 
                 std::mt19937 gen(seq);
-                return std::uniform_int_distribution<size_t>(500, 1000)(gen);
+                return static_cast<std::size_t>(std::uniform_int_distribution<u32>(500, 1000)(gen));
             }
         };
 
@@ -3846,25 +3852,23 @@ public:
                 const WORD target_group = active_group_aff.Group;
                 const KAFFINITY target_mask = active_group_aff.Mask;
 
-                /* 32 KB stack buffer to avoid heap fallback */
-                alignas(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) BYTE stack_topo[32768]{};
-                DWORD len = sizeof(stack_topo);
+                DWORD len = 0;
+                std::ignore = GetLogicalProcessorInformationEx(RelationAll, nullptr, &len);
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || len == 0) {
+                    return {};
+                }
 
-                std::vector<BYTE> heap_topo;
+                u8* raw_topo_buffer = static_cast<u8*>(malloc(len));
+                if (raw_topo_buffer == nullptr) {
+                    return {};
+                }
+
                 PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX topo_ptr =
-                    reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(stack_topo);
+                    reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_topo_buffer);
 
                 if (!GetLogicalProcessorInformationEx(RelationAll, topo_ptr, &len)) {
-                    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && len > sizeof(stack_topo)) {
-                        heap_topo.resize(len);
-                        topo_ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(heap_topo.data());
-                        if (!GetLogicalProcessorInformationEx(RelationAll, topo_ptr, &len)) {
-                            return {};
-                        }
-                    }
-                    else {
-                        return {};
-                    }
+                    free(raw_topo_buffer);
+                    return {};
                 }
 
                 struct group_cpu {
@@ -3890,6 +3894,7 @@ public:
                 }
 
                 if (active_cpu_count < 2) {
+                    free(raw_topo_buffer);
                     return {};
                 }
 
@@ -3899,7 +3904,7 @@ public:
 
                 while (offset + sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD) <= len) {
                     auto* ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
-                        reinterpret_cast<BYTE*>(topo_ptr) + offset
+                        raw_topo_buffer + offset
                     );
 
                     if (ptr->Size == 0 || offset + ptr->Size > len) {
@@ -3990,6 +3995,9 @@ public:
                     offset += ptr->Size;
                 }
 
+                free(raw_topo_buffer);
+                raw_topo_buffer = nullptr;
+
                 /* Golden Rule 1: At least two physical cores must exist */
                 DWORD unique_cores[64]{};
                 DWORD core_to_primary_logical[64]{};
@@ -4033,7 +4041,7 @@ public:
                 }
 
                 /* Stack-based core-thread and L2 sharing tracking */
-                uint8_t core_thread_count[64]{};
+                u8 core_thread_count[64]{};
                 for (DWORD i = 0; i < active_cpu_count; ++i) {
                     const DWORD core = group_cpus[idxs[i]].core_id;
                     for (DWORD u = 0; u < unique_cores_count; ++u) {
@@ -4044,7 +4052,7 @@ public:
                     }
                 }
 
-                uint8_t l2_sharing[64]{};
+                u8 l2_sharing[64]{};
                 for (DWORD u = 0; u < unique_cores_count; ++u) {
                     const DWORD l2_u = group_cpus[core_to_primary_logical[u]].l2_cache_id;
                     if (l2_u == 0xFFFFFFFFu) continue;
@@ -4270,7 +4278,7 @@ public:
                 for (u32 i = 0; i < 2'000'000; ++i) {
                     val = (val ^ i) * 6364136223846793005ULL + 1442695040888963407ULL;
                 }
-                volatile u64 compiler_sink = val;
+                const volatile u64 compiler_sink = val;
                 VMAWARE_UNUSED(compiler_sink);
 
                 /* Warm up the decoded i-cache (DSB), BTB, and microcode sequencer */
@@ -4355,23 +4363,47 @@ public:
     struct memory {
         /* Uninstrumented indirect-call invokers */
         VMAWARE_NO_CFG static void execute(const void* pointer) noexcept {
+            if (pointer == nullptr) {
+                return;
+            }
+
             using func_t = void(*)();
-            reinterpret_cast<func_t>(const_cast<void*>(pointer))();
+            func_t func = nullptr;
+            std::memcpy(&func, &pointer, sizeof(func));
+            func();
         }
 
         VMAWARE_NO_CFG static void execute(const void* pointer, void* frame, uintptr_t stack32_ptr, u64* saved_rsp) noexcept {
+            if (pointer == nullptr) {
+                return;
+            }
+
             using func_t = void(*)(void*, uintptr_t, u64*);
-            reinterpret_cast<func_t>(const_cast<void*>(pointer))(frame, stack32_ptr, saved_rsp);
+            func_t func = nullptr;
+            std::memcpy(&func, &pointer, sizeof(func));
+            func(frame, stack32_ptr, saved_rsp);
         }
 
         VMAWARE_NO_CFG static void execute(const void* pointer, void* vmcall_info, void* vmcall_result) noexcept {
+            if (pointer == nullptr) {
+                return;
+            }
+
             using func_t = void(*)(void*, void*);
-            reinterpret_cast<func_t>(const_cast<void*>(pointer))(vmcall_info, vmcall_result);
+            func_t func = nullptr;
+            std::memcpy(&func, &pointer, sizeof(func));
+            func(vmcall_info, vmcall_result);
         }
 
         VMAWARE_NO_CFG static u32 execute_ret(const void* pointer) noexcept {
+            if (pointer == nullptr) {
+                return 0;
+            }
+
             using func_t = u32(*)();
-            return reinterpret_cast<func_t>(const_cast<void*>(pointer))();
+            func_t func = nullptr;
+            std::memcpy(&func, &pointer, sizeof(func));
+            return func();
         }
 
         inline static DWORD execute_ret_handler(const void* pointer, u32& result) noexcept {
@@ -4410,7 +4442,8 @@ public:
                 return;
             }
 
-            BYTE* base = reinterpret_cast<BYTE*>(module);
+            u8* base = reinterpret_cast<u8*>(module);
+            const uintptr_t base_addr = reinterpret_cast<uintptr_t>(base);
 
             size_t module_size = 0;
             MEMORY_BASIC_INFORMATION mbi = {};
@@ -4424,19 +4457,23 @@ public:
                 return;
             }
 
+            if (base_addr > (UINTPTR_MAX - module_size)) {
+                return;
+            }
+
             auto valid_range = [&](size_t offset, size_t sz) noexcept -> bool {
                 return (sz > 0) && (offset < module_size) && (sz <= module_size - offset);
             };
 
-            auto cstr_from_rva = [&](DWORD rva) noexcept -> const char* {
+            auto cstr_from_rva = [&](u32 rva) noexcept -> const char* {
                 if (rva == 0 || !valid_range(static_cast<size_t>(rva), 1)) {
                     return nullptr;
                 }
 
                 const char* start = reinterpret_cast<const char*>(base + rva);
                 const size_t remaining = module_size - static_cast<size_t>(rva);
-                constexpr size_t MAX_NAME_SCAN = 512;
-                const size_t check_len = (remaining < MAX_NAME_SCAN) ? remaining : MAX_NAME_SCAN;
+                constexpr size_t max_name_scan = 512;
+                const size_t check_len = (remaining < max_name_scan) ? remaining : max_name_scan;
 
                 if (std::memchr(start, '\0', check_len)) {
                     return start;
@@ -4449,22 +4486,22 @@ public:
             if (VMAWARE_UNLIKELY(!valid_range(0, sizeof(IMAGE_DOS_HEADER)))) {
                 return;
             }
-            const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-            if (VMAWARE_UNLIKELY(dosHeader->e_magic != IMAGE_DOS_SIGNATURE)) {
+            const auto* dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+            if (VMAWARE_UNLIKELY(dos_header->e_magic != IMAGE_DOS_SIGNATURE)) {
                 return;
             }
 
             /* e_lfanew -> NT headers */
-            if (VMAWARE_UNLIKELY(dosHeader->e_lfanew < 0 || (static_cast<size_t>(dosHeader->e_lfanew) % sizeof(DWORD)) != 0)) {
+            if (VMAWARE_UNLIKELY(dos_header->e_lfanew < 0 || (static_cast<size_t>(dos_header->e_lfanew) % sizeof(u32)) != 0)) {
                 return;
             }
-            const size_t e_lfanew = static_cast<size_t>(dosHeader->e_lfanew);
+            const size_t e_lfanew = static_cast<size_t>(dos_header->e_lfanew);
 
             if (e_lfanew + sizeof(IMAGE_NT_HEADERS) > module_size) {
                 MEMORY_BASIC_INFORMATION nt_mbi = {};
                 if (VirtualQuery(base + e_lfanew, &nt_mbi, sizeof(nt_mbi))) {
                     if (nt_mbi.State == MEM_COMMIT && nt_mbi.AllocationBase == base) {
-                        const size_t region_end = static_cast<size_t>(reinterpret_cast<BYTE*>(nt_mbi.BaseAddress) - base) + nt_mbi.RegionSize;
+                        const size_t region_end = static_cast<size_t>(reinterpret_cast<u8*>(nt_mbi.BaseAddress) - base) + nt_mbi.RegionSize;
                         if (e_lfanew + sizeof(IMAGE_NT_HEADERS) <= region_end) {
                             module_size = region_end;
                         }
@@ -4475,36 +4512,36 @@ public:
             if (VMAWARE_UNLIKELY(!valid_range(e_lfanew, sizeof(IMAGE_NT_HEADERS)))) {
                 return;
             }
-            const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + e_lfanew);
-            if (VMAWARE_UNLIKELY(ntHeaders->Signature != IMAGE_NT_SIGNATURE)) {
+            const auto* nt_headers = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + e_lfanew);
+            if (VMAWARE_UNLIKELY(nt_headers->Signature != IMAGE_NT_SIGNATURE)) {
                 return;
             }
 
         #if defined(_WIN64)
-            if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+            if (nt_headers->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
                 return;
             }
         #else
-            if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+            if (nt_headers->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
                 return;
             }
         #endif
 
-            const size_t sizeOfImage = static_cast<size_t>(ntHeaders->OptionalHeader.SizeOfImage);
-            constexpr size_t MAX_MODULE_SIZE = 1024u * 1024u * 1024u;
-            if (sizeOfImage < sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS) || sizeOfImage > MAX_MODULE_SIZE) {
+            const size_t size_of_image = static_cast<size_t>(nt_headers->OptionalHeader.SizeOfImage);
+            constexpr size_t max_module_size = 1024u * 1024u * 1024u;
+            if (size_of_image < sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS) || size_of_image > max_module_size) {
                 return;
             }
-            if (sizeOfImage > module_size) {
-                module_size = sizeOfImage;
+            if (size_of_image > module_size) {
+                module_size = size_of_image;
             }
 
             /* Check export data directory exists */
-            if (ntHeaders->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXPORT) {
+            if (nt_headers->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXPORT) {
                 return;
             }
 
-            const auto& dd = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+            const auto& dd = nt_headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
             if (dd.VirtualAddress == 0 || dd.Size == 0) {
                 return;
             }
@@ -4514,39 +4551,47 @@ public:
                 return;
             }
 
-            const auto* exportDir = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dd.VirtualAddress);
+            const auto* export_directory = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dd.VirtualAddress);
 
-            const DWORD nameCount = exportDir->NumberOfNames;
-            const DWORD funcCount = exportDir->NumberOfFunctions;
+            const u32 name_count = export_directory->NumberOfNames;
+            const u32 function_count = export_directory->NumberOfFunctions;
 
-            constexpr DWORD MAX_NAMES = 1u << 20;
-            if (nameCount == 0 || nameCount > MAX_NAMES) {
+            constexpr u32 max_names = 1u << 20;
+            if (name_count == 0 || name_count > max_names) {
                 return;
             }
-            if (funcCount == 0 || funcCount > MAX_NAMES) {
+            if (function_count == 0 || function_count > max_names) {
                 return;
             }
 
-            const DWORD addr_names = exportDir->AddressOfNames;
-            const DWORD addr_funcs = exportDir->AddressOfFunctions;
-            const DWORD addr_ord = exportDir->AddressOfNameOrdinals;
+            const u32 addr_names = export_directory->AddressOfNames;
+            const u32 addr_funcs = export_directory->AddressOfFunctions;
+            const u32 addr_ord = export_directory->AddressOfNameOrdinals;
 
             if (addr_names == 0 || addr_funcs == 0 || addr_ord == 0) {
                 return;
             }
-            if (!valid_range(static_cast<size_t>(addr_names), static_cast<size_t>(nameCount) * sizeof(DWORD))) {
+            if (!valid_range(static_cast<size_t>(addr_names), static_cast<size_t>(name_count) * sizeof(u32))) {
                 return;
             }
-            if (!valid_range(static_cast<size_t>(addr_funcs), static_cast<size_t>(funcCount) * sizeof(DWORD))) {
+            if (!valid_range(static_cast<size_t>(addr_funcs), static_cast<size_t>(function_count) * sizeof(u32))) {
                 return;
             }
-            if (!valid_range(static_cast<size_t>(addr_ord), static_cast<size_t>(nameCount) * sizeof(WORD))) {
+            if (!valid_range(static_cast<size_t>(addr_ord), static_cast<size_t>(name_count) * sizeof(u16))) {
                 return;
             }
 
-            const DWORD* nameRvas = reinterpret_cast<const DWORD*>(base + addr_names);
-            const DWORD* funcRvas = reinterpret_cast<const DWORD*>(base + addr_funcs);
-            const WORD* ordinals = reinterpret_cast<const WORD*>(base + addr_ord);
+            const u32* name_rvas = reinterpret_cast<const u32*>(base + addr_names);
+            const u32* func_rvas = reinterpret_cast<const u32*>(base + addr_funcs);
+            const u16* ordinals = reinterpret_cast<const u16*>(base + addr_ord);
+
+            if (VMAWARE_UNLIKELY(!name_rvas || !func_rvas || !ordinals)) {
+                return;
+            }
+
+            VMAWARE_ASSUME(name_rvas != nullptr);
+            VMAWARE_ASSUME(func_rvas != nullptr);
+            VMAWARE_ASSUME(ordinals != nullptr);
 
             for (size_t i = 0; i < count; ++i) {
                 const char* current_name = names[i];
@@ -4566,17 +4611,17 @@ public:
                 }
 
                 /* Binary search over names */
-                DWORD lo = 0, hi = nameCount;
+                u32 lo = 0, hi = name_count;
                 while (lo < hi) {
-                    const DWORD mid = lo + (hi - lo) / 2;
-                    const DWORD midNameRva = nameRvas[mid];
-                    const char* midName = cstr_from_rva(midNameRva);
-                    if (!midName) {
-                        lo = nameCount;
+                    const u32 mid = lo + (hi - lo) / 2;
+                    const u32 mid_name_rva = name_rvas[mid];
+                    const char* mid_name = cstr_from_rva(mid_name_rva);
+                    if (!mid_name) {
+                        lo = name_count;
                         break;
                     }
 
-                    const int cmp = strcmp(current_name, midName);
+                    const i32 cmp = strcmp(current_name, mid_name);
                     if (cmp > 0) {
                         lo = mid + 1;
                     }
@@ -4585,18 +4630,18 @@ public:
                     }
                 }
 
-                if (lo < nameCount) {
-                    const char* candidateName = cstr_from_rva(nameRvas[lo]);
-                    if (candidateName && strcmp(current_name, candidateName) == 0) {
-                        const WORD nameOrdinal = ordinals[lo];
-                        if (static_cast<DWORD>(nameOrdinal) >= funcCount) {
+                if (lo < name_count) {
+                    const char* candidate_name = cstr_from_rva(name_rvas[lo]);
+                    if (candidate_name && strcmp(current_name, candidate_name) == 0) {
+                        const u16 name_ordinal = ordinals[lo];
+                        if (static_cast<u32>(name_ordinal) >= function_count) {
                             continue;
                         }
-                        const DWORD funcRva = funcRvas[nameOrdinal];
-                        if (funcRva == 0 || !valid_range(static_cast<size_t>(funcRva), 1)) {
+                        const u32 function_rva = func_rvas[name_ordinal];
+                        if (function_rva == 0 || !valid_range(static_cast<size_t>(function_rva), 1)) {
                             continue;
                         }
-                        void* addr = reinterpret_cast<void*>(base + funcRva);
+                        void* addr = reinterpret_cast<void*>(base + function_rva);
                         functions[i] = addr;
 
                         if (cache_result) {
@@ -5207,15 +5252,12 @@ public:
             oss << std::forward<T>(arg);
         }
 
-        static VMAWARE_CONSTEXPR void print_to_stream(std::ostringstream&) noexcept {}
+        static inline void print_to_stream(std::ostringstream&) noexcept {}
 
-        template <typename... Args>
-        static void print_to_stream(std::ostringstream& oss, Args&&... args) noexcept {
-            using expander = int[];
-            (void)expander {
-                0,
-                ((void)append_to_stream(oss, std::forward<Args>(args)), 0)...
-            };
+        template <typename First, typename... Rest>
+        static inline void print_to_stream(std::ostringstream& oss, First&& first, Rest&&... rest) {
+            append_to_stream(oss, std::forward<First>(first));
+            print_to_stream(oss, std::forward<Rest>(rest)...);
         }
 
         template <typename... Args>
@@ -5291,7 +5333,7 @@ public:
         }
 
 
-        [[nodiscard]] static bool is_proc_running(const char* executable) {
+        [[nodiscard]] static bool is_proc_running(const char* executable) noexcept {
         #if (VMAWARE_LINUX)
             VMAWARE_ASSUME(executable != nullptr);
             #if (VMAWARE_CPP >= 17)
@@ -5423,7 +5465,7 @@ public:
                                 } pmInfo{};
 
                                 ULONG returned_len = 0;
-                                NTSTATUS status = nt_query_information_process(
+                                const NTSTATUS status = nt_query_information_process(
                                     current_process,
                                     90, /* ProcessMachineInternalInformation */
                                     &pmInfo,
@@ -5478,7 +5520,7 @@ public:
 
             /* Check if hypervisor feature bit in CPUID Leaf 1, ECX bit 31 is enabled */
             auto is_hyperv_present = []() noexcept -> bool {
-                u32 unused, ecx = 0;
+                u32 unused = 0, ecx = 0;
                 cpu::cpuid(unused, unused, ecx, unused, cpu::leaf::features);
 
                 return (ecx >> 31) & 1;
@@ -5489,7 +5531,7 @@ public:
              * some CPU models like N4200 expose 0x40000003 leaves without exposing the hypervisor bit
              */
             auto is_root_partition = []() noexcept -> bool {
-                u32 ebx, unused = 0;
+                u32 ebx = 0, unused = 0;
                 cpu::cpuid(unused, ebx, unused, unused, cpu::leaf::hv_privileges);
 
                 return (ebx & 1);
@@ -5501,7 +5543,7 @@ public:
              * essentially, it indicates that the hypervisor is managing the VM and that the VM is not running directly on hardware but rather in a virtualized environment
              */
             auto eax = []() noexcept -> u32 {
-                u32 eax_reg, unused = 0;
+                u32 eax_reg = 0, unused = 0;
                 cpu::cpuid(eax_reg, unused, unused, unused, cpu::leaf::hypervisor);
 
                 return eax_reg & 0xFF; /* Truncation is intentional */
@@ -5523,7 +5565,7 @@ public:
             };
 
             /* Check if the HAL path HalpInitializeErrSrc->HalpInitializeMce->HalpMceInit->HalpHvInitMcaPcrContext is initializing machine-check/WHEA state in a hypervisor-aware context */
-            auto is_halh_present = []() noexcept -> bool {
+            auto is_halh_present = []() -> bool {
                 const HMODULE ntdll = memory::get_module(true);
                 if (!ntdll) {
                     return true;
@@ -5538,7 +5580,7 @@ public:
                 using nt_query_sysinfo_fn = NTSTATUS(__stdcall*)(ULONG, PVOID, ULONG, PULONG);
                 nt_query_sysinfo_fn nt_query_system_information = reinterpret_cast<nt_query_sysinfo_fn>(functions[0]);
                 if (!nt_query_system_information) {
-                    return false;
+                    return true;
                 }
 
                 struct entry_struct { ULONG Tag; ULONG PA; ULONG PF; SIZE_T PU; ULONG NPA; ULONG NPF; SIZE_T NPU; };
@@ -5566,13 +5608,13 @@ public:
 
                 if (!NT_SUCCESS(status)) {
                     HeapFree(heap, 0, buffer);
-                    return false;
+                    return true;
                 }
 
-                const size_t header_offset = offsetof(info_struct, TagInfo);
+                constexpr size_t header_offset = offsetof(info_struct, TagInfo);
                 if (needed < header_offset) {
                     HeapFree(heap, 0, buffer);
-                    return false;
+                    return true;
                 }
 
                 bool found = false;
@@ -5581,10 +5623,10 @@ public:
                     const size_t bytes_available = needed - header_offset;
                     const size_t max_possible_count = bytes_available / sizeof(entry_struct);
 
-                    const ULONG safe_count = (info->Count < max_possible_count) ? info->Count : static_cast<ULONG>(max_possible_count);
+                    const ULONG count = (info->Count < max_possible_count) ? info->Count : static_cast<ULONG>(max_possible_count);
 
                     const auto* entries = reinterpret_cast<const entry_struct*>(reinterpret_cast<const char*>(info) + header_offset);
-                    for (ULONG i = 0; i < safe_count; ++i) {
+                    for (ULONG i = 0; i < count; ++i) {
                         ULONG tag = 0;
                         std::memcpy(&tag, &entries[i].Tag, sizeof(ULONG));
                         if (tag == 0x486C6148) { /* HalH */
@@ -5596,7 +5638,7 @@ public:
 
                 HeapFree(heap, 0, buffer);
                 return found;
-           };
+            };
 
             auto is_log_present = []() -> bool {
                 #pragma pack(push, 1)
@@ -5619,20 +5661,19 @@ public:
                 using pfn_tbsi_get_tcg_log = int(__stdcall*)(void*, u8*, u32*);
                 using pfn_tbsip_context_close = int(__stdcall*)(void*);
 
-                const HMODULE tbs_module = LoadLibraryExW(L"tbs.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-                if (!tbs_module) {
+                const HMODULE tbs = LoadLibraryExW(L"tbs.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+                if (!tbs) {
                     return true; /* If not Windows 10, return true (legit) to not false flag */
                 }
 
-                const char* function_names[] = {
+                constexpr const char* function_names[] = {
                     "Tbsi_Get_TCG_Log_Ex",
                     "Tbsi_Context_Create",
                     "Tbsi_Get_TCG_Log",
                     "Tbsip_Context_Close"
                 };
-                constexpr size_t function_count = sizeof(function_names) / sizeof(function_names[0]);
-                void* functions[function_count] = {};
-                memory::get_function(tbs_module, function_names, functions, function_count);
+                void* functions[ARRAYSIZE(function_names)] = {};
+                memory::get_function(tbs, function_names, functions, ARRAYSIZE(function_names));
 
                 const pfn_tbsi_get_tcg_log_ex get_tcg_log_ex = reinterpret_cast<pfn_tbsi_get_tcg_log_ex>(functions[0]);
                 const pfn_tbsi_context_create context_create = reinterpret_cast<pfn_tbsi_context_create>(functions[1]);
@@ -5640,7 +5681,7 @@ public:
                 const pfn_tbsip_context_close context_close = reinterpret_cast<pfn_tbsip_context_close>(functions[3]);
 
                 if (!get_tcg_log_ex && !(context_create && get_tcg_log && context_close)) {
-                    FreeLibrary(tbs_module);
+                    FreeLibrary(tbs);
                     return true; /* If not Windows 10, return true (legit) to not false flag */
                 }
 
@@ -5670,7 +5711,7 @@ public:
                     }
                 }
 
-                FreeLibrary(tbs_module);
+                FreeLibrary(tbs);
 
                 if (hr != 0 || !log_buffer) {
                     delete[] log_buffer;
@@ -5928,7 +5969,7 @@ public:
                     const char* brand_str = cpu::cpu_manufacturer(cpu::leaf::hypervisor);
                     bool is_hyper_v_host = (enlightenment_str && brand_str && strcmp(brand_str, "Microsoft Hv") == 0);
 
-                    if (util::is_windows_11()) {
+                    if (is_admin() && is_windows_11()) {
                         const bool hal = is_halh_present();
                         vma_debug("HYPER-X: Hypervisor Hardware Abstraction Layer: ", hal);
                         is_hyper_v_host &= hal;
@@ -5957,13 +5998,13 @@ public:
         }
 
     #if (VMAWARE_WINDOWS)
-        [[nodiscard]] static bool is_windows_11() noexcept {
+        [[nodiscard]] static bool is_windows_11() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
             }
 
-            const char* function_names[] = { "RtlGetVersion" };
+            constexpr const char* function_names[] = { "RtlGetVersion" };
             void* functions[ARRAYSIZE(function_names)] = {};
             memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
@@ -5979,13 +6020,13 @@ public:
             return rtl_get_version(&vi) == 0 && vi.dwBuildNumber >= 22000;
         }
 
-        [[nodiscard]] static bool is_windows_8_or_newer() noexcept {
+        [[nodiscard]] static bool is_windows_8_or_newer() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
             }
 
-            const char* function_names[] = { "RtlGetVersion" };
+            constexpr const char* function_names[] = { "RtlGetVersion" };
             void* functions[ARRAYSIZE(function_names)] = {};
             memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
@@ -6223,13 +6264,20 @@ public:
                 return crc;
             }
 
-            /* Software fallback CRC32-C for a single byte */
-            static inline u32 crc32c_byte_sw(u32 crc, const char data) noexcept {
-                crc ^= static_cast<u8>(data);
-                for (int i = 0; i < 8; ++i) {
-                    crc = (crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0);
-                }
-                return crc;
+            static constexpr u32 crc32c_bit_step(u32 crc) noexcept {
+                return (crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0u);
+            }
+
+            /* 8 unrolled to make it C++11 constexpr, single-byte CRC32-C calculation */
+            static constexpr u32 crc32c_byte_sw(u32 crc, const char data) noexcept {
+                return crc32c_bit_step(
+                    crc32c_bit_step(
+                        crc32c_bit_step(
+                            crc32c_bit_step(
+                                crc32c_bit_step(
+                                    crc32c_bit_step(
+                                        crc32c_bit_step(
+                                            crc32c_bit_step(crc ^ static_cast<u8>(data)))))))));
             }
 
             /* Native/SSE4.2 hardware assisted or software CRC32C of a single byte */
@@ -6934,7 +6982,7 @@ public:
 
             size_t offset = 0;
             while (offset < len) {
-                auto* rec = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf + offset);
+                const auto* rec = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf + offset);
 
                 if (len - offset < sizeof(DWORD) * 2) {
                     break;
@@ -7434,7 +7482,7 @@ public:
         }
 
         /* Calculation of minimum threshold for instrution latency */
-        double threshold = 2.75;
+        constexpr double threshold = 2.75;
         bool check_nested = false;
         if (util::hyper_x() == HYPERV_HOST) {
             vma_debug("TIMER: Hyper-V detected, running nested checks");
@@ -7681,7 +7729,7 @@ public:
          * depending on the compiler's O level and the presence of PIC/PIE, this can introduce small addressing calculations inside the loop, so by assigning the address to a local pointer outside the loop,
          * we encourage the compiler to load this absolute pointer into a CPU register BEFORE the loop starts so at the end it translates to a simple mov
         */
-        volatile timer::timer_tick_t* const counter_ptr = &state.counter;
+        const volatile timer::timer_tick_t* const counter_ptr = &state.counter;
 
         for (int trial = 0; trial < trials; ++trial) {
             size_t valid = 0;
@@ -7692,7 +7740,7 @@ public:
                 if (serialize_available) {
                     while (valid < batch_size && invalid < local_max_attempts) {
                         /* cpuid and serialize/lfence interpolated so that any turbo boost, thermal throttling, speculation (for the loop overhead itself, not for the serializing instructions), etc affects samples equally */
-                        timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
+                        timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
 
                         /* This is done as a counter to both legitimate and malicious hypervisors interrupts that may pause the counter thread while we measure */
                         sync = *counter_ptr;
@@ -7751,7 +7799,7 @@ public:
                 else {
                     while (valid < batch_size && invalid < local_max_attempts) {
                         /* This block's logic is the same as above but using LFENCE instead of SERIALIZE, read code comments above */
-                        timer::timer_tick_t r_pre, r_post, v_pre, v_post, sync;
+                        timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
 
                         sync = *counter_ptr;
                         while (*counter_ptr == sync);
@@ -7833,7 +7881,7 @@ public:
             EXCEPTION_RECORD er{};
 
             while (valid < batch_size && invalid < local_max_attempts) {
-                timer::timer_tick_t db_pre, db_post, api_pre, api_post, sync;
+                timer::timer_tick_t db_pre = 0, db_post = 0, api_pre = 0, api_post = 0, sync = 0;
 
                 sync = *counter_ptr;
                 while (*counter_ptr == sync);
@@ -9195,7 +9243,7 @@ public:
         /* Iterating processors for SGDT, SLDT, and SIDT */
         GROUP_AFFINITY original_group_aff{};
         if (GetThreadGroupAffinity(current_thread, &original_group_aff)) {
-            const DWORD max_affinity_bits = static_cast<DWORD>(sizeof(ULONG_PTR) * 8);
+            constexpr DWORD max_affinity_bits = static_cast<DWORD>(sizeof(ULONG_PTR) * 8);
             for (DWORD i = 0; i < max_affinity_bits; ++i) {
                 if (original_group_aff.Mask & (static_cast<ULONG_PTR>(1) << i)) {
                     GROUP_AFFINITY target_aff = original_group_aff;
@@ -9259,7 +9307,12 @@ public:
                             #endif
                                 sldt_executed = true;
                             }
-                            __except (EXCEPTION_EXECUTE_HANDLER) {}
+                            __except ((GetExceptionCode() == EXCEPTION_PRIV_INSTRUCTION ||
+                                GetExceptionCode() == EXCEPTION_ILLEGAL_INSTRUCTION)
+                                ? EXCEPTION_EXECUTE_HANDLER
+                                : EXCEPTION_CONTINUE_SEARCH) {
+                                sldt_executed = false;
+                            }
 
                             if (sldt_executed) {
                                 std::memcpy(&ldt_val, ldtr_buf, sizeof(ldt_val));
@@ -9292,8 +9345,8 @@ public:
                             #elif (VMAWARE_MSVC) && (VMAWARE_X86_64)
                                 #pragma pack(push, 1)
                                     struct {
-                                        USHORT Limit;
-                                        ULONG_PTR Base;
+                                        u16 limit;
+                                        u64 base;
                                     } idtr;
                                 #pragma pack(pop)
                                 __sidt(&idtr);
@@ -9301,7 +9354,12 @@ public:
                             #endif
                                 sidt_executed = true;
                             }
-                            __except (EXCEPTION_EXECUTE_HANDLER) {}
+                            __except ((GetExceptionCode() == EXCEPTION_PRIV_INSTRUCTION ||
+                                GetExceptionCode() == EXCEPTION_ILLEGAL_INSTRUCTION)
+                                ? EXCEPTION_EXECUTE_HANDLER
+                                : EXCEPTION_CONTINUE_SEARCH) {
+                                sidt_executed = false;
+                            }
 
                             if (sidt_executed) {
                                 ULONG_PTR idt_base = 0;
@@ -9997,7 +10055,7 @@ public:
         /* Scan SMBIOS (RSMB) / FIRM tables */
         constexpr DWORD smb_providers[] = { 'FIRM', 'RSMB' };
 
-        for (DWORD prov : smb_providers) {
+        for (const DWORD prov : smb_providers) {
             const UINT e = EnumSystemFirmwareTables(prov, nullptr, 0);
             if (!e) {
                 continue;
@@ -10331,12 +10389,21 @@ public:
         if (h_dev_info != INVALID_HANDLE_VALUE) {
             struct dev_info_closer {
                 HDEVINFO handle;
+
+                explicit dev_info_closer(const HDEVINFO h) noexcept : handle(h) {}
+
                 ~dev_info_closer() {
                     if (handle != INVALID_HANDLE_VALUE) {
                         SetupDiDestroyDeviceInfoList(handle);
+                        handle = INVALID_HANDLE_VALUE;
                     }
                 }
-            } dev_info_closer{ h_dev_info };
+
+                dev_info_closer(const dev_info_closer&) = delete;
+                dev_info_closer& operator=(const dev_info_closer&) = delete;
+                dev_info_closer(dev_info_closer&&) = delete;
+                dev_info_closer& operator=(dev_info_closer&&) = delete;
+            } closer{ h_dev_info };
 
             SP_DEVINFO_DATA dev_info_data{};
 
@@ -10463,6 +10530,8 @@ public:
                 case 0x29556e61:
                     vma_debug("DEVICES: Detected VirtualPC device -> 0x", std::hex, id32);
                     return core::add(brand_enum::VPC);
+
+                default: break;
             }
 
             /* Devices with 32 bit device ids */
@@ -10482,6 +10551,8 @@ public:
                 case 0x0000000015ad0800ULL:  /* Hypervisor ROM Interface */
                     vma_debug("DEVICES: Detected Hypervisor ROM interface -> 0x", std::hex, id64);
                     return core::add(brand_enum::VMWARE);
+
+                default: break;
             }
         }
         
@@ -10507,7 +10578,7 @@ public:
                 return false;
             }
 
-            const char* function_names[] = { "NtQuerySystemInformation" };
+            constexpr const char* function_names[] = { "NtQuerySystemInformation" };
             void* functions[ARRAYSIZE(function_names)] = {};
             memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
@@ -10520,7 +10591,7 @@ public:
             /* Parse header to locate the bitmap */
             struct boot_logo_info { ULONG flags, bitmap_offset; };
 
-            const int sys_boot_info = 140; /* SystemBootLogoInformation */
+            constexpr int sys_boot_info = 140; /* SystemBootLogoInformation */
             ULONG needed = 0;
             NTSTATUS st = nt_query_system_information(sys_boot_info, nullptr, 0, &needed);
             if (st != static_cast<NTSTATUS>(0xC0000023) &&
@@ -10737,7 +10808,7 @@ public:
         const HANDLE current_process = reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-1));
 
         /* NVMe heuristic checks */
-        auto check_nvme_heuristics = [&](HANDLE dev) noexcept -> bool {
+        auto check_nvme_heuristics = [&](const HANDLE dev) -> bool {
             struct protocol_descriptor {
                 DWORD Version;
                 DWORD Size;
@@ -10753,8 +10824,8 @@ public:
                 } protocol_data;
             };
 
-            auto query_protocol = [&](const STORAGE_PROPERTY_ID prop_id, const DWORD data_type, const DWORD req_val, const DWORD req_sub_val, void* out_buf, const DWORD out_size) noexcept -> bool {
-                const size_t header_size = sizeof(protocol_descriptor);
+            auto query_protocol = [&](const STORAGE_PROPERTY_ID prop_id, const DWORD data_type, const DWORD req_val, const DWORD req_sub_val, void* out_buf, const DWORD out_size) -> bool {
+                constexpr size_t header_size = sizeof(protocol_descriptor);
                 if (!out_buf || out_size == 0 || out_size > (MAX_DESCRIPTOR_SIZE - header_size)) {
                     return false;
                 }
@@ -10785,7 +10856,7 @@ public:
 
                 const size_t total_size = header_size + out_size;
 
-                /* Use local stack buffer to avoid expensive virtual memory syscalls */
+                /* Local stack buffer to avoid expensive virtual memory syscalls */
                 alignas(protocol_descriptor) BYTE stack_query_buf[sizeof(protocol_descriptor) + 4096]{};
                 PVOID allocation_base = nullptr;
                 bool dynamic_allocated = false;
@@ -10795,8 +10866,8 @@ public:
                 }
                 else {
                     SIZE_T region_size = total_size;
-                    NTSTATUS query_st = nt_allocate_virtual_memory(current_process, &allocation_base, 0, &region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-                    if (!NT_SUCCESS(query_st) || allocation_base == nullptr) {
+                    const NTSTATUS query_status = nt_allocate_virtual_memory(current_process, &allocation_base, 0, &region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+                    if (!NT_SUCCESS(query_status) || allocation_base == nullptr) {
                         return false;
                     }
                     dynamic_allocated = true;
@@ -10806,24 +10877,24 @@ public:
                 *reinterpret_cast<protocol_query*>(allocation_base) = qpacket;
 
                 IO_STATUS_BLOCK query_iosb{};
-                NTSTATUS query_st = nt_device_io_control_file(dev, nullptr, nullptr, nullptr, &query_iosb,
+                NTSTATUS query_status = nt_device_io_control_file(dev, nullptr, nullptr, nullptr, &query_iosb,
                     IOCTL_STORAGE_QUERY_PROPERTY,
                     allocation_base, static_cast<ULONG>(total_size),
                     allocation_base, static_cast<ULONG>(total_size));
 
                 /* If STATUS_PENDING wait fails */
-                if (query_st == static_cast<NTSTATUS>(0x00000103L)) {
-                    NTSTATUS wait_st = nt_wait_for_single_object(dev, FALSE, nullptr);
-                    if (NT_SUCCESS(wait_st)) {
-                        query_st = query_iosb.Status;
+                if (query_status == static_cast<NTSTATUS>(0x00000103L)) {
+                    const NTSTATUS wait_status = nt_wait_for_single_object(dev, FALSE, nullptr);
+                    if (NT_SUCCESS(wait_status)) {
+                        query_status = query_iosb.Status;
                     }
                     else {
-                        query_st = static_cast<NTSTATUS>(0xC0000001L); /* STATUS_UNSUCCESSFUL */
+                        query_status = static_cast<NTSTATUS>(0xC0000001L); /* STATUS_UNSUCCESSFUL */
                     }
                 }
 
                 bool success = false;
-                if (NT_SUCCESS(query_st)) {
+                if (NT_SUCCESS(query_status)) {
                     const size_t valid_len = (query_iosb.Information < total_size)
                         ? static_cast<size_t>(query_iosb.Information)
                         : total_size;
@@ -10943,7 +11014,7 @@ public:
             query.PropertyId = StorageDeviceProperty;
             query.QueryType = PropertyStandardQuery;
 
-            const ULONG ioctl = IOCTL_STORAGE_QUERY_PROPERTY;
+            constexpr ULONG ioctl = IOCTL_STORAGE_QUERY_PROPERTY;
 
             st = nt_device_io_control_file(device, nullptr, nullptr, nullptr, &iosb,
                 ioctl,
@@ -10952,8 +11023,8 @@ public:
 
             /* We need to handle STATUS_PENDING synchronously */
             if (st == static_cast<NTSTATUS>(0x00000103L)) {
-                NTSTATUS wait_st = nt_wait_for_single_object(device, FALSE, nullptr);
-                if (NT_SUCCESS(wait_st)) {
+                const NTSTATUS wait_status = nt_wait_for_single_object(device, FALSE, nullptr);
+                if (NT_SUCCESS(wait_status)) {
                     st = iosb.Status;
                 }
                 else {
@@ -10989,8 +11060,8 @@ public:
                     iosb = {};
                     st = nt_device_io_control_file(device, nullptr, nullptr, nullptr, &iosb, ioctl, &query, sizeof(query), allocated_buffer, static_cast<ULONG>(allocated_size));
                     if (st == static_cast<NTSTATUS>(0x00000103L)) {
-                        NTSTATUS wait_st = nt_wait_for_single_object(device, FALSE, nullptr);
-                        if (NT_SUCCESS(wait_st)) {
+                        const NTSTATUS wait_status = nt_wait_for_single_object(device, FALSE, nullptr);
+                        if (NT_SUCCESS(wait_status)) {
                             st = iosb.Status;
                         }
                         else {
@@ -11207,8 +11278,7 @@ public:
      * @category MacOS
      * @implements VM::HWMODEL
      */
-    [[nodiscard]] static bool hwmodel() {
-        
+    [[nodiscard]] static bool hwmodel() {      
         /* Hw.model strings are short (like for example MacBookPro16,1), 128 bytes is plenty */
         char buffer[128] = { 0 };
         size_t size = sizeof(buffer);
@@ -11706,7 +11776,7 @@ public:
 
         static_assert(offsetof(KEY_VALUE_PARTIAL_INFORMATION_LOCAL, Data) == 12, "Offset of Data member in KEY_VALUE_PARTIAL_INFORMATION_LOCAL must be exactly 12 bytes.");
 
-        const size_t header_size = offsetof(KEY_VALUE_PARTIAL_INFORMATION_LOCAL, Data);
+        constexpr size_t header_size = offsetof(KEY_VALUE_PARTIAL_INFORMATION_LOCAL, Data);
         if (result_length <= header_size || result_length > sizeof(buffer)) {
             return false;
         }
@@ -12130,9 +12200,8 @@ public:
             "NtQueryKey",
             "NtClose"
         };
-        constexpr size_t num_functions = sizeof(function_names) / sizeof(function_names[0]);
-        void* functions[num_functions] = {};
-        memory::get_function(ntdll, function_names, functions, static_cast<ULONG>(num_functions));
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
         using nt_query_system_information_fn = NTSTATUS(__stdcall*)(ULONG, PVOID, ULONG, PULONG);
         using nt_allocate_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
@@ -12518,12 +12587,12 @@ public:
         }
 
         /* Prepare to open the root USER registry hive */
-        constexpr wchar_t raw_target[] = L"\\REGISTRY\\USER";
-        constexpr USHORT target_char_count = static_cast<USHORT>((sizeof(raw_target) / sizeof(wchar_t)) - 1);
-        constexpr USHORT target_byte_length = target_char_count * sizeof(wchar_t);
+        wchar_t raw_target[] = L"\\REGISTRY\\USER";
+        constexpr USHORT target_char_count{ (sizeof(raw_target) / sizeof(wchar_t)) - 1 };
+        constexpr USHORT target_byte_length{ target_char_count * sizeof(wchar_t) };
 
         custom_unicode_string key_path{};
-        key_path.Buffer = const_cast<PWSTR>(raw_target);
+        key_path.Buffer = raw_target;
         key_path.Length = target_byte_length;
         key_path.MaximumLength = target_byte_length + sizeof(wchar_t);
 
@@ -12543,7 +12612,7 @@ public:
          */
         HANDLE key = nullptr;
         NTSTATUS status = nt_open_key(&key, KEY_READ, &object_attributes);
-        if (!(((NTSTATUS)(status)) >= 0)) {
+        if (status < 0) {
             return false;
         }
 
@@ -12563,11 +12632,13 @@ public:
          * The authentic "\REGISTRY\USER" requires < 50 bytes. If 1024 bytes is insufficient,
          * the path has definitively been redirected
          */
-        if (status == static_cast<NTSTATUS>(0xC0000004L) || status == static_cast<NTSTATUS>(0x80000005L)) {
+        constexpr NTSTATUS status_info_length_mismatch = -0x3FFFFFFCL;
+        constexpr NTSTATUS status_buffer_overflow = -0x7FFFFFFBL;
+        if (status == status_info_length_mismatch || status == status_buffer_overflow) {
             return core::add(brand_enum::SANDBOXIE);
         }
 
-        if (!(((NTSTATUS)(status)) >= 0)) {
+        if (status < 0) {
             return false;
         }
 
@@ -12575,15 +12646,21 @@ public:
             return false;
         }
 
-        const auto object_name = reinterpret_cast<custom_object_name_information*>(buffer);
+        void* const raw_buffer = buffer;
+        const auto object_name = static_cast<custom_object_name_information*>(raw_buffer);
 
         if (object_name->Name.Buffer == nullptr || object_name->Name.Length == 0) {
             return false;
         }
 
-        const auto buf_start = reinterpret_cast<uintptr_t>(buffer);
+        uintptr_t buf_start = 0;
+        const void* const buf_ptr = buffer;
+        std::memcpy(&buf_start, &buf_ptr, sizeof(buf_start));
         const auto valid_end = buf_start + returned_length;
-        const auto str_start = reinterpret_cast<uintptr_t>(object_name->Name.Buffer);
+
+        uintptr_t str_start = 0;
+        const void* const str_ptr = object_name->Name.Buffer;
+        std::memcpy(&str_start, &str_ptr, sizeof(str_start));
 
         if (str_start < buf_start || str_start >= valid_end ||
             object_name->Name.Length >(valid_end - str_start) ||
@@ -12784,9 +12861,8 @@ public:
             "NtGetContextThread",
             "NtSetContextThread"
         };
-        constexpr size_t num_functions = sizeof(function_names) / sizeof(function_names[0]);
-        void* functions[num_functions] = {};
-        memory::get_function(ntdll, function_names, functions, num_functions);
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
         using nt_get_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
         using nt_set_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
@@ -12831,7 +12907,7 @@ public:
 
         /* Static struct for SEH filtering to avoid release-mode lambda optimizations */
         struct exception_handler {
-            static VMAWARE_NOINLINE LONG execute(const u32 code, EXCEPTION_POINTERS* info, trap_context* ctx) noexcept {
+            static VMAWARE_NOINLINE LONG execute(const u32 code, EXCEPTION_POINTERS* info, const trap_context* ctx) {
                 if (!info || !info->ExceptionRecord || !info->ContextRecord || !ctx || !ctx->hit_count || !ctx->hypervisor_caught) {
                     return EXCEPTION_CONTINUE_SEARCH;
                 }
@@ -12855,8 +12931,9 @@ public:
                     return EXCEPTION_CONTINUE_EXECUTION;
                 }
 
-                if (*ctx->hit_count < 0xFF) {
-                    (*ctx->hit_count)++;
+                const u8 current_hits = *ctx->hit_count;
+                if (current_hits < 0xFF) {
+                    *ctx->hit_count = static_cast<u8>(current_hits + 1);
                 }
 
                 /* Check if both Trap Flag and DR0 contributed to the exception status */
@@ -13146,9 +13223,8 @@ public:
         }
 
         constexpr const char* function_names[] = { "NtGetContextThread", "NtSetContextThread" };
-        constexpr size_t num_functions = sizeof(function_names) / sizeof(function_names[0]);
-        void* functions[num_functions] = {};
-        memory::get_function(ntdll, function_names, functions, static_cast<ULONG>(num_functions));
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
         using nt_get_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
         using nt_set_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
@@ -13226,7 +13302,7 @@ public:
                     bool* rip_failed_out,
                     bool* step_triggered_out,
                     uintptr_t stub_base_addr
-                ) {
+                ) noexcept {
                     if (exception_code != EXCEPTION_SINGLE_STEP) {
                         return EXCEPTION_CONTINUE_SEARCH;
                     }
@@ -13310,9 +13386,8 @@ public:
         }
 
         constexpr const char* function_names[] = { "NtOpenDirectoryObject", "NtQueryDirectoryObject", "NtClose" };
-        constexpr size_t num_functions = sizeof(function_names) / sizeof(function_names[0]);
-        void* functions[num_functions] = {};
-        memory::get_function(ntdll, function_names, functions, static_cast<ULONG>(num_functions));
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
         using nt_open_directory_object_fn = NTSTATUS(__stdcall*)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
         using nt_query_directory_object_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID, ULONG, BOOLEAN, BOOLEAN, PULONG, PULONG);
@@ -13330,13 +13405,13 @@ public:
          * Prepare to open the root "\Device" directory in the Object Manager namespace
          * This is different from the file system and we are looking for kernel objects created by drivers
          */
-        constexpr wchar_t device_dir_path[] = L"\\Device";
-        constexpr USHORT device_dir_bytes = static_cast<USHORT>((sizeof(device_dir_path) / sizeof(wchar_t) - 1) * sizeof(wchar_t));
+        wchar_t device_dir_path[] = L"\\Device";
+        constexpr u16 device_dir_bytes = static_cast<u16>(sizeof(device_dir_path) - sizeof(wchar_t));
 
         UNICODE_STRING dir_name{};
-        dir_name.Buffer = const_cast<PWSTR>(device_dir_path);
         dir_name.Length = device_dir_bytes;
-        dir_name.MaximumLength = static_cast<USHORT>(device_dir_bytes + sizeof(wchar_t));
+        dir_name.MaximumLength = static_cast<u16>(sizeof(device_dir_path));
+        dir_name.Buffer = device_dir_path;
 
         OBJECT_ATTRIBUTES object_attributes{};
         InitializeObjectAttributes(&object_attributes, &dir_name, OBJ_CASE_INSENSITIVE, nullptr, nullptr);
@@ -13519,7 +13594,7 @@ public:
                 for (size_t j = 1; j < plen; ++j) {
                     BYTE dj = p[j];
                     dj = static_cast<BYTE>((dj >= 'A' && dj <= 'Z') ? (dj + 32) : dj);
-                    BYTE pj = static_cast<BYTE>((pat[j] >= 'A' && pat[j] <= 'Z') ? (pat[j] + 32) : pat[j]);
+                    const BYTE pj = static_cast<BYTE>((pat[j] >= 'A' && pat[j] <= 'Z') ? (pat[j] + 32) : pat[j]);
                     if (dj != pj) {
                         ok = false;
                         break;
@@ -13557,7 +13632,7 @@ public:
                 for (size_t j = 1; j < plen; ++j) {
                     WCHAR dj = p[j];
                     dj = static_cast<WCHAR>((dj >= L'A' && dj <= L'Z') ? (dj + 32) : dj);
-                    WCHAR pj = static_cast<WCHAR>((pat[j] >= L'A' && pat[j] <= L'Z') ? (pat[j] + 32) : pat[j]);
+                    const WCHAR pj = static_cast<WCHAR>((pat[j] >= L'A' && pat[j] <= L'Z') ? (pat[j] + 32) : pat[j]);
                     if (dj != pj) {
                         ok = false;
                         break;
@@ -13571,14 +13646,22 @@ public:
             return false;
         };
 
-        auto read_variable_to_buffer = [&](const std::wstring& name, GUID guid, BYTE*& out_buf, SIZE_T& out_len) noexcept -> bool {
+        auto read_variable_to_buffer = [&](const std::wstring& name, GUID guid, u8*& out_buf, SIZE_T& out_len) noexcept -> bool {
+            constexpr u32 max_var_name_len = 256;
+            if (name.empty() || name.length() >= max_var_name_len) {
+                return false;
+            }
+
+            wchar_t name_buffer[max_var_name_len];
+            std::memcpy(name_buffer, name.c_str(), (name.length() + 1) * sizeof(wchar_t));
+
             UNICODE_STRING uni_str{};
-            uni_str.Buffer = const_cast<PWSTR>(name.c_str());
-            uni_str.Length = static_cast<USHORT>(name.length() * sizeof(wchar_t));
-            uni_str.MaximumLength = uni_str.Length + sizeof(wchar_t);
+            uni_str.Length = static_cast<u16>(name.length() * sizeof(wchar_t));
+            uni_str.MaximumLength = static_cast<u16>(sizeof(name_buffer));
+            uni_str.Buffer = name_buffer;
 
             ULONG required_size = 0;
-            (void)nt_query_value(&uni_str, &guid, nullptr, &required_size, nullptr);
+            std::ignore = nt_query_value(&uni_str, &guid, nullptr, &required_size, nullptr);
             if (required_size == 0) {
                 return false;
             }
@@ -13713,7 +13796,7 @@ public:
                     break;
                 }
 
-                const size_t name_struct_offset = offsetof(VARIABLE_NAME, Name);
+                constexpr size_t name_struct_offset = offsetof(VARIABLE_NAME, Name);
                 if (buffer_total_size - current_offset < name_struct_offset) {
                     break;
                 }
@@ -13772,7 +13855,7 @@ public:
                 /* Read variables */
                 if (var_name_view == L"PKDefault" && pk_default_buf == nullptr) {
                     const GUID var_guid = current_var->VendorGuid;
-                    (void)read_variable_to_buffer(var_name_view, var_guid, pk_default_buf, pk_default_len);
+                    std::ignore = read_variable_to_buffer(var_name_view, var_guid, pk_default_buf, pk_default_len);
                 }
 
                 if (current_var->NextEntryOffset == 0) {
@@ -13874,15 +13957,17 @@ public:
         constexpr u32 AES_NI_BIT = 1u << 25;
         const bool aes_support = (c & AES_NI_BIT) != 0;
 
-        alignas(16) unsigned char plaintext[16] = {
-            0x00,0x11,0x22,0x33, 0x44,0x55,0x66,0x77,
-            0x88,0x99,0xAA,0xBB, 0xCC,0xDD,0xEE,0xFF
-        };
-        alignas(16) unsigned char key[16] = {
-            0x0F,0x0E,0x0D,0x0C, 0x0B,0x0A,0x09,0x08,
-            0x07,0x06,0x05,0x04, 0x03,0x02,0x01,0x00
-        };
-        alignas(16) unsigned char out[16] = { 0 };
+        alignas(16) static constexpr std::array<u8, 16> plaintext = { {
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+            0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+        } };
+
+        alignas(16) static constexpr std::array<u8, 16> key = { {
+            0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08,
+            0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00
+        } };
+
+        alignas(16) std::array<u8, 16> out = { { 0 } };
 
         /* Need to do a lambda wrapper to isolate SEH from the parent function's stack unwinding */
         struct aes_executor {
@@ -13915,12 +14000,12 @@ public:
             }
         };
 
-        const __m128i block_val = _mm_loadu_si128(reinterpret_cast<const __m128i*>(plaintext));
-        const __m128i key_val = _mm_loadu_si128(reinterpret_cast<const __m128i*>(key));
+        const __m128i block_val = _mm_loadu_si128(reinterpret_cast<const __m128i*>(plaintext.data()));
+        const __m128i key_val = _mm_loadu_si128(reinterpret_cast<const __m128i*>(key.data()));
 
         bool is_spoofed = false;
 
-        if (aes_executor::check_aes_integrity(block_val, key_val, out, aes_support)) {
+        if (aes_executor::check_aes_integrity(block_val, key_val, out.data(), aes_support)) {
             is_spoofed = true;
         }
 
@@ -13954,7 +14039,7 @@ public:
         #if (VMAWARE_CLANG || VMAWARE_GCC)
             __attribute__((__target__("avx")))
         #endif
-            static bool check() noexcept {
+            static bool check() {
                 __try {
                     /* Since CPUID reports OSXSAVE as active, xgetbv is guaranteed to work */
                     const u64 xcr0 = static_cast<u64>(_xgetbv(0));
@@ -13966,12 +14051,12 @@ public:
                         return false;
                     }
 
-                    alignas(32) float in0[8] = { 1,2,3,4,5,6,7,8 };
-                    alignas(32) float in1[8] = { 16,15,14,13,12,11,10,9 };
+                    alignas(32) static constexpr std::array<float, 8> in0 = { { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f } };
+                    alignas(32) static constexpr std::array<float, 8> in1 = { { 16.0f, 15.0f, 14.0f, 13.0f, 12.0f, 11.0f, 10.0f, 9.0f } };
                     alignas(32) float out[8] = {};
 
-                    const __m256 va = _mm256_loadu_ps(in0);
-                    const __m256 vb = _mm256_loadu_ps(in1);
+                    const __m256 va = _mm256_loadu_ps(in0.data());
+                    const __m256 vb = _mm256_loadu_ps(in1.data());
                     const __m256 vc = _mm256_add_ps(va, vb);
                     _mm256_storeu_ps(out, vc);
                     return out[0] != 17.0f;
@@ -13995,21 +14080,21 @@ public:
             #if (VMAWARE_CLANG || VMAWARE_GCC)
                 __attribute__((__target__("avx2")))
             #endif
-            static bool check() noexcept {
+            static bool check() {
                 __try {
                     const u64 xcr0 = static_cast<u64>(_xgetbv(0));
                     if ((xcr0 & XCR0_AVX_MASK) != XCR0_AVX_MASK) {
                         return false;
                     }
 
-                    alignas(32) u32 in0[8] = { 1,2,3,4,5,6,7,8 };
-                    alignas(32) u32 in1[8] = { 16,15,14,13,12,11,10,9 };
-                    alignas(32) u32 out[8] = {};
+                    alignas(32) static constexpr std::array<u32, 8> in0 = { { 1, 2, 3, 4, 5, 6, 7, 8 } };
+                    alignas(32) static constexpr std::array<u32, 8> in1 = { { 16, 15, 14, 13, 12, 11, 10, 9 } };
+                    alignas(32) std::array<u32, 8> out = {};
 
-                    const __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(in0));
-                    const __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(in1));
+                    const __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(in0.data()));
+                    const __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(in1.data()));
                     const __m256i vc = _mm256_add_epi32(va, vb);
-                    _mm256_storeu_si256(reinterpret_cast<__m256i*>(out), vc);
+                    _mm256_storeu_si256(reinterpret_cast<__m256i*>(out.data()), vc);
                     return out[0] != 17u;
                 }
                 __except (GetExceptionCode() == EXCEPTION_ILLEGAL_INSTRUCTION
@@ -14027,7 +14112,7 @@ public:
             #if (VMAWARE_CLANG || VMAWARE_GCC)
                 __attribute__((__target__("avx512f")))
             #endif
-            static bool check() noexcept {
+            static bool check() {
                 __try {
                     const u64 xcr0 = static_cast<u64>(_xgetbv(0));
 
@@ -14039,18 +14124,18 @@ public:
                         return false;
                     }
 
-                    alignas(64) u32 in0[16] = {
-                        1,2,3,4,5,6,7,8, 9,10,11,12,13,14,15,16
-                    };
-                    alignas(64) u32 in1[16] = {
-                        16,15,14,13,12,11,10,9, 8,7,6,5,4,3,2,1
-                    };
-                    alignas(64) u32 out[16] = {};
+                    alignas(64) static constexpr std::array<u32, 16> in0 = { {
+                        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+                    } };
+                    alignas(64) static constexpr std::array<u32, 16> in1 = { {
+                        16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+                    } };
+                    alignas(64) std::array<u32, 16> out = {};
 
-                    const __m512i va = _mm512_loadu_si512(reinterpret_cast<const void*>(in0));
-                    const __m512i vb = _mm512_loadu_si512(reinterpret_cast<const void*>(in1));
+                    const __m512i va = _mm512_loadu_si512(reinterpret_cast<const void*>(in0.data()));
+                    const __m512i vb = _mm512_loadu_si512(reinterpret_cast<const void*>(in1.data()));
                     const __m512i vc = _mm512_add_epi32(va, vb);
-                    _mm512_storeu_si512(reinterpret_cast<void*>(out), vc);
+                    _mm512_storeu_si512(reinterpret_cast<void*>(out.data()), vc);
                     return out[0] != 17u;
                 }
                 __except (GetExceptionCode() == EXCEPTION_ILLEGAL_INSTRUCTION
@@ -14122,7 +14207,7 @@ public:
             0xC3                        /* ret */
         };
     #endif
-        SIZE_T amd_stub_size = sizeof(amd_bytes);
+        constexpr SIZE_T amd_stub_size = sizeof(amd_bytes);
 
         const u8* bytes = nullptr;
         SIZE_T code_size = 0;
@@ -14149,7 +14234,7 @@ public:
          * Excavator CPUs do not possess the CLZERO instruction
          */
         if (claimed_amd) {
-            cpu::model_struct model = cpu::get_model();
+            const cpu::model_struct model = cpu::get_model();
             if (!model.is_ryzen) {
                 vma_debug("CPU_HEURISTIC: CPU is AMD but not Ryzen. Skipping CLZERO check");
                 proceed = false;
@@ -14177,7 +14262,7 @@ public:
 
         if (proceed) {
             /* One cache line = 64 bytes */
-            const SIZE_T target_size = 64;
+            constexpr SIZE_T target_size = 64;
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
@@ -14245,7 +14330,7 @@ public:
 
                         using code_func = void(*)();
                         using runner_func = u8(*)(code_func);
-                        runner_func runner = +[](code_func func) -> u8 {
+                        runner_func runner = +[](const code_func func) noexcept -> u8 {
                             __try {
                                 func();
                                 return 0;
@@ -14339,7 +14424,7 @@ public:
                     if (c == L'\0') {
                         return 0;
                     }
-                    u32 nib;
+                    u32 nib = 0;
                     if (c >= L'0' && c <= L'9') {
                         nib = static_cast<u32>(c - L'0');
                     }
@@ -14685,6 +14770,7 @@ public:
     #else
         #if (defined VMAWARE_DEBUG)
             if (IsDebuggerPresent()) {
+                vma_debug("HYPERVISOR_HOOK: Debugger detected");
                 return false; /* To not hit the debugger breakpoint, making the debugger impossible to advance */
             }
         #endif  
@@ -14837,7 +14923,7 @@ public:
         }
 
         *static_cast<volatile u8*>(pointer) = 0xC3;
-        nt_flush_instruction_cache(current_process, const_cast<void*>(pointer), 1);
+        nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
 
         base_address = pointer;
         prot_region_size = 1;
@@ -14846,7 +14932,7 @@ public:
         if (status < 0) {
             /* Emergency cleanup before early exit */
             *static_cast<volatile u8*>(pointer) = original_byte;
-            nt_flush_instruction_cache(current_process, const_cast<void*>(pointer), 1);
+            nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
             return false;
         }
 
@@ -14856,7 +14942,7 @@ public:
             ULONG prev_prot = 0;
             if (nt_protect_virtual_memory(current_process, &restore_addr, &restore_size, PAGE_EXECUTE_READWRITE, &prev_prot) >= 0) {
                 *static_cast<volatile u8*>(pointer) = original_byte;
-                nt_flush_instruction_cache(current_process, const_cast<void*>(pointer), 1);
+                nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
                 nt_protect_virtual_memory(current_process, &restore_addr, &restore_size, prev_prot, &dummy_protect);
             }
         };
@@ -14951,7 +15037,7 @@ public:
         ermsb_expected_tid = static_cast<DWORD>(*reinterpret_cast<const ULONG32*>(__readfsdword(0x18) + 0x24));
     #endif
         struct exception_handler {
-            static VMAWARE_NOINLINE LONG __stdcall execute(const PEXCEPTION_POINTERS ctx) {
+            static VMAWARE_NOINLINE LONG __stdcall execute(const PEXCEPTION_POINTERS ctx) noexcept {
             #if (VMAWARE_X86_64)
                 const DWORD current_thread_id = static_cast<DWORD>(*reinterpret_cast<const ULONG64*>(__readgsqword(0x30) + 0x48));
             #elif (VMAWARE_X86_32)
@@ -15133,7 +15219,7 @@ public:
         }
 
         struct exception_handler {
-            static VMAWARE_NOINLINE LONG execute(const EXCEPTION_POINTERS* info, volatile DWORD* exceptionCode) {
+            static VMAWARE_NOINLINE LONG execute(const EXCEPTION_POINTERS* info, volatile DWORD* _exception_code) noexcept {
                 if (!info || !info->ExceptionRecord) {
                     return EXCEPTION_CONTINUE_SEARCH;
                 }
@@ -15145,8 +15231,8 @@ public:
                     return EXCEPTION_CONTINUE_SEARCH;
                 }
 
-                if (exceptionCode) {
-                    *exceptionCode = code;
+                if (_exception_code) {
+                    *_exception_code = code;
                 }
 
                 if (info->ContextRecord) {
@@ -15259,8 +15345,8 @@ public:
             "NtFlushInstructionCache"
         };
 
-        void* functions[sizeof(function_names) / sizeof(function_names[0])] = {};
-        memory::get_function(ntdll, function_names, functions, sizeof(function_names) / sizeof(function_names[0]));
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
         using nt_allocate_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
         using nt_free_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, PSIZE_T, ULONG);
@@ -15353,7 +15439,7 @@ public:
         /* High-boundary 32-bit execution target */
         PVOID boundary_base = reinterpret_cast<PVOID>(0xFFFF0000ULL);
         SIZE_T boundary_size = 0x10000ULL;
-        NTSTATUS alloc_status = nt_allocate_virtual_memory(current_process, &boundary_base, 0, &boundary_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        const NTSTATUS alloc_status = nt_allocate_virtual_memory(current_process, &boundary_base, 0, &boundary_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 
         if (alloc_status >= 0) {
             if (boundary_base == reinterpret_cast<PVOID>(0xFFFF0000ULL)) {
@@ -15559,7 +15645,7 @@ public:
                 return false;
             }
 
-            const size_t first_event_data_offset = sizeof(TCG_PCR_EVENT_HEADER);
+            constexpr size_t first_event_data_offset = sizeof(TCG_PCR_EVENT_HEADER);
             if (total_size - first_event_data_offset < first_hdr.eventSize) {
                 return false;
             }
@@ -15692,7 +15778,6 @@ public:
             "Tbsi_Get_TCG_Log"
         };
         void* functions[ARRAYSIZE(function_names)] = {};
-
         memory::get_function(tbs, function_names, functions, ARRAYSIZE(function_names), false);
 
         tbsi_get_tcg_log_ex_fn tbsi_get_tcg_log_ex = reinterpret_cast<tbsi_get_tcg_log_ex_fn>(functions[0]);
@@ -15703,9 +15788,9 @@ public:
         bool vm_detected = false;
 
         if (tbsi_get_tcg_log_ex) {
-            for (UINT32 log_type : { 0, 2 }) {
+            for (const UINT32 log_type : { 0, 2 }) {
                 UINT32 log_size = 0;
-                TBS_RESULT res = tbsi_get_tcg_log_ex(log_type, nullptr, &log_size);
+                const TBS_RESULT res = tbsi_get_tcg_log_ex(log_type, nullptr, &log_size);
                 if ((res == 0 || res == VMAWARE_TBS_INSUFFICIENT_BUFFER) && log_size > 0 && log_size <= MAX_TCG_LOG_SIZE) {
                     std::vector<u8> buffer;
                     try {
@@ -15726,11 +15811,11 @@ public:
         }
 
         if (!vm_detected && tbsi_context_create && tbsip_context_close && tbsi_get_tcg_log) {
-            VMAWARE_TBS_CONTEXT_PARAMS2 params2{ 2, 0x6 }; /* TPM_VERSION_20, includeTpm12 | includeTpm20 */
+            const VMAWARE_TBS_CONTEXT_PARAMS2 params2 { 2, 0x6 }; /* TPM_VERSION_20, includeTpm12 | includeTpm20 */
             TBS_HCONTEXT context_handle = nullptr;
             TBS_RESULT create_res = tbsi_context_create(&params2, &context_handle);
             if (create_res != 0) {
-                VMAWARE_TBS_CONTEXT_PARAMS params1{ 1 }; /* TPM_VERSION_12 fallback */
+                const VMAWARE_TBS_CONTEXT_PARAMS params1{ 1 }; /* TPM_VERSION_12 fallback */
                 create_res = tbsi_context_create(&params1, &context_handle);
             }
 
@@ -15904,8 +15989,8 @@ public:
         tbsip_submit_command_t p_tbsip_submit_command = nullptr;
         tbsip_context_close_t p_tbsip_context_close = nullptr;
 
-        HMODULE bcrypt_dll = nullptr;
-        HMODULE tbs_dll = nullptr;
+        HMODULE bcrypt = nullptr;
+        HMODULE tbs = nullptr;
         TBS_HCONTEXT h_tbs_context = nullptr;
         u8* log_buffer = nullptr;
         BCRYPT_ALG_HANDLE h_bcrypt_alg = nullptr;
@@ -15936,22 +16021,22 @@ public:
                 p_tbsip_context_close(h_tbs_context);
                 h_tbs_context = nullptr;
             }
-            if (tbs_dll) {
-                FreeLibrary(tbs_dll);
-                tbs_dll = nullptr;
+            if (tbs) {
+                FreeLibrary(tbs);
+                tbs = nullptr;
             }
-            if (bcrypt_dll) {
-                FreeLibrary(bcrypt_dll);
-                bcrypt_dll = nullptr;
+            if (bcrypt) {
+                FreeLibrary(bcrypt);
+                bcrypt = nullptr;
             }
         };
 
-        bcrypt_dll = LoadLibraryExW(L"bcrypt.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        if (!bcrypt_dll) {
+        bcrypt = LoadLibraryExW(L"bcrypt.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!bcrypt) {
             return false;
         }
 
-        const char* bcrypt_names[] = {
+        constexpr const char* function_names[] = {
             "BCryptOpenAlgorithmProvider",
             "BCryptGetProperty",
             "BCryptCreateHash",
@@ -15960,16 +16045,16 @@ public:
             "BCryptDestroyHash",
             "BCryptCloseAlgorithmProvider"
         };
-        void* bcrypt_funcs[7] = { nullptr };
-        memory::get_function(bcrypt_dll, bcrypt_names, bcrypt_funcs, 7, false);
+        void* functions[ARRAYSIZE(function_names)] = {};
+        memory::get_function(bcrypt, function_names, functions, ARRAYSIZE(function_names));
 
-        p_bcrypt_open_algorithm_provider = reinterpret_cast<bcrypt_open_algorithm_provider_t>(bcrypt_funcs[0]);
-        p_bcrypt_get_property = reinterpret_cast<bcrypt_get_property_t>(bcrypt_funcs[1]);
-        p_bcrypt_create_hash = reinterpret_cast<bcrypt_create_hash_t>(bcrypt_funcs[2]);
-        p_bcrypt_hash_data = reinterpret_cast<bcrypt_hash_data_t>(bcrypt_funcs[3]);
-        p_bcrypt_finish_hash = reinterpret_cast<bcrypt_finish_hash_t>(bcrypt_funcs[4]);
-        p_bcrypt_destroy_hash = reinterpret_cast<bcrypt_destroy_hash_t>(bcrypt_funcs[5]);
-        p_bcrypt_close_algorithm_provider = reinterpret_cast<bcrypt_close_algorithm_provider_t>(bcrypt_funcs[6]);
+        p_bcrypt_open_algorithm_provider = reinterpret_cast<bcrypt_open_algorithm_provider_t>(functions[0]);
+        p_bcrypt_get_property = reinterpret_cast<bcrypt_get_property_t>(functions[1]);
+        p_bcrypt_create_hash = reinterpret_cast<bcrypt_create_hash_t>(functions[2]);
+        p_bcrypt_hash_data = reinterpret_cast<bcrypt_hash_data_t>(functions[3]);
+        p_bcrypt_finish_hash = reinterpret_cast<bcrypt_finish_hash_t>(functions[4]);
+        p_bcrypt_destroy_hash = reinterpret_cast<bcrypt_destroy_hash_t>(functions[5]);
+        p_bcrypt_close_algorithm_provider = reinterpret_cast<bcrypt_close_algorithm_provider_t>(functions[6]);
 
         if (!p_bcrypt_open_algorithm_provider || !p_bcrypt_get_property || !p_bcrypt_create_hash ||
             !p_bcrypt_hash_data || !p_bcrypt_finish_hash || !p_bcrypt_destroy_hash || !p_bcrypt_close_algorithm_provider) {
@@ -15996,25 +16081,25 @@ public:
             return false;
         }
 
-        tbs_dll = LoadLibraryExW(L"tbs.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        if (!tbs_dll) {
+        tbs = LoadLibraryExW(L"tbs.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!tbs) {
             free_resources();
             return false;
         }
 
-        const char* tbs_names[] = {
+        constexpr const char* tbs_function_names[] = {
             "Tbsi_Context_Create",
             "Tbsi_Get_TCG_Log_Ex",
             "Tbsip_Submit_Command",
             "Tbsip_Context_Close"
         };
-        void* tbs_funcs[4] = { nullptr };
-        memory::get_function(tbs_dll, tbs_names, tbs_funcs, 4, false);
+        void* tbs_functions[ARRAYSIZE(tbs_function_names)] = {};
+        memory::get_function(tbs, tbs_function_names, tbs_functions, ARRAYSIZE(tbs_function_names));
 
-        p_tbsi_context_create = reinterpret_cast<tbsi_context_create_t>(tbs_funcs[0]);
-        p_tbsi_get_tcg_log_ex = reinterpret_cast<tbsi_get_tcg_log_ex_t>(tbs_funcs[1]);
-        p_tbsip_submit_command = reinterpret_cast<tbsip_submit_command_t>(tbs_funcs[2]);
-        p_tbsip_context_close = reinterpret_cast<tbsip_context_close_t>(tbs_funcs[3]);
+        p_tbsi_context_create = reinterpret_cast<tbsi_context_create_t>(tbs_functions[0]);
+        p_tbsi_get_tcg_log_ex = reinterpret_cast<tbsi_get_tcg_log_ex_t>(tbs_functions[1]);
+        p_tbsip_submit_command = reinterpret_cast<tbsip_submit_command_t>(tbs_functions[2]);
+        p_tbsip_context_close = reinterpret_cast<tbsip_context_close_t>(tbs_functions[3]);
 
         if (!p_tbsi_context_create || !p_tbsi_get_tcg_log_ex || !p_tbsip_submit_command || !p_tbsip_context_close) {
             free_resources();
@@ -16228,7 +16313,7 @@ public:
             return (static_cast<u32>(p[0]) << 24) | (static_cast<u32>(p[1]) << 16) | (static_cast<u32>(p[2]) << 8) | static_cast<u32>(p[3]);
         };
 
-        u8 cmd_alg[22] = {
+        constexpr u8 cmd_alg[22] = {
             0x80, 0x01,
             0x00, 0x00, 0x00, 0x16,
             0x00, 0x00, 0x01, 0x7A,
@@ -16521,54 +16606,51 @@ public:
     [[nodiscard]] static bool vcpu_scheduling() {
         /* Local descriptor representing a physical processor and its logical mask */
         struct physical_processor_entry {
-            unsigned int physical_id;
+            u32 physical_id;
             WORD group_id;
             KAFFINITY mask;
-            unsigned char efficiency_class; /* 0 = E-CORE, >= 1 = P-CORE */
+            u8 efficiency_class; /* 0 = E-CORE, >= 1 = P-CORE */
             bool is_pcore;
         };
 
-        constexpr unsigned int run_count = 2;
+        constexpr u32 run_count = 2;
         std::vector<std::vector<physical_processor_entry>> topology_runs(run_count);
 
-        for (unsigned int r = 0; r < run_count; ++r) {
-            /* 32 KB aligned stack buffer with heap fallback */
-            constexpr DWORD STACK_BUFFER_SIZE = 32 * 1024;
-            alignas(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) BYTE stack_buf[STACK_BUFFER_SIZE]{};
-            std::vector<BYTE> heap_buf;
+        for (u32 r = 0; r < run_count; ++r) {
+            DWORD buffer_size = 0;
 
-            DWORD buffer_size = STACK_BUFFER_SIZE;
-            BYTE* raw_buffer = stack_buf;
-
-            /* Query processor core topology */
-            if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
-                reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_buffer),
-                &buffer_size))
-            {
-                if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-                    heap_buf.resize(buffer_size);
-                    raw_buffer = heap_buf.data();
-
-                    if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
-                        reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_buffer),
-                        &buffer_size))
-                    {
-                        return false;
-                    }
-                }
-                else {
+            /* First query to determine the exact required buffer size */
+            if (!GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &buffer_size)) {
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
                     return false;
                 }
             }
 
-            /* Parse physical cores and logical affinity masks */
-            DWORD offset = 0;
-            unsigned int physical_counter = 0;
+            if (buffer_size == 0) {
+                return false;
+            }
 
-            constexpr DWORD min_header_size = sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD);
+            u8* raw_buffer = static_cast<u8*>(malloc(buffer_size));
+            if (raw_buffer == nullptr) {
+                return false;
+            }
+
+            if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
+                reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_buffer),
+                &buffer_size))
+            {
+                free(raw_buffer);
+                return false;
+            }
+
+            /* Then parse physical cores and logical affinity masks */
+            DWORD offset = 0;
+            u32 physical_counter = 0;
+
+            constexpr DWORD min_header_size = static_cast<DWORD>(sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD));
 
             while (offset + min_header_size <= buffer_size) {
-                auto* info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_buffer + offset);
+                const auto* info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(raw_buffer + offset);
 
                 if (info->Size < min_header_size || info->Size > buffer_size - offset) {
                     break;
@@ -16582,11 +16664,11 @@ public:
                         continue;
                     }
 
-                    unsigned char eff_class = info->Processor.EfficiencyClass;
-                    bool is_pcore = (eff_class > 0); /* 0 = E-Core, >= 1 = P-Core */
+                    const u8 eff_class = info->Processor.EfficiencyClass;
+                    const bool is_pcore = (eff_class > 0); /* 0 = E-Core, >= 1 = P-Core */
 
                     for (WORD g = 0; g < info->Processor.GroupCount; ++g) {
-                        size_t mask_offset = offsetof(PROCESSOR_RELATIONSHIP, GroupMask) + (static_cast<size_t>(g) + 1) * sizeof(GROUP_AFFINITY);
+                        const size_t mask_offset = offsetof(PROCESSOR_RELATIONSHIP, GroupMask) + (static_cast<size_t>(g) + 1) * sizeof(GROUP_AFFINITY);
                         if (offsetof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor) + mask_offset > info->Size) {
                             break;
                         }
@@ -16604,6 +16686,9 @@ public:
 
                 offset += info->Size;
             }
+
+            free(raw_buffer);
+            raw_buffer = nullptr;
 
             if (topology_runs[r].empty()) {
                 return false;
@@ -16694,7 +16779,6 @@ public:
         auto check_two_byte_int3 = []() noexcept -> bool {
         #if (VMAWARE_WINDOWS)
             if (IsDebuggerPresent()) {
-                vma_debug("EMULATION: Debugger detected");
                 return false;
             }
             const DWORD status = memory::execute_handler(int3_stub);
@@ -16847,7 +16931,7 @@ public:
         auto check_x87_overflow = []() noexcept -> bool {
             const u32 sw = memory::execute_ret(fpu_overflow_stub);
             /* Physical x87 sets IE (bit 0), SF (bit 6), and C1 (bit 9) -> mask 0x0241 */
-            const u32 expected_mask = (1u << 0) | (1u << 6) | (1u << 9);
+            constexpr u32 expected_mask = (1u << 0) | (1u << 6) | (1u << 9);
             return ((sw & expected_mask) != expected_mask);
         };
 
@@ -16878,11 +16962,11 @@ public:
      * ============================================================================================== */
     struct core {
         struct technique {
-            u8 points = 0;                /* This is the certainty score between 0 and 100 */
-            bool(*run)();                 /* This is the technique function itself */
+            u8 points = 0; /* This is the certainty score between 0 and 100 */
+            bool(*run)();  /* This is the technique function itself */
 
-            constexpr technique() : run(nullptr) {}
-            constexpr technique(u8 points, bool(*run)()) : points(points), run(run) {}
+            constexpr technique() noexcept : run(nullptr) {}
+            constexpr technique(u8 points, bool(*run)()) noexcept : points(points), run(run) {}
         };
 
         struct custom_technique { /* For custom techniques the user can implement */
@@ -17188,7 +17272,7 @@ public:
         struct settings {
             flagset flag_collector = generate_default();
 
-            VMAWARE_CONSTEXPR void enable(const enum_flags flag) noexcept {
+            VMAWARE_CONSTEXPR void enable(const enum_flags flag) {
                 if (flag == ALL) {
                     flag_collector |= generate_all();
                 }
@@ -17206,19 +17290,19 @@ public:
                 }
             }
 
-            VMAWARE_CONSTEXPR void disable(const enum_flags flag) noexcept {
+            VMAWARE_CONSTEXPR void disable(const enum_flags flag) {
                 const auto idx = static_cast<size_t>(flag);
                 if (idx < flag_collector.size()) {
                     flag_collector.set(idx, false);
                 }
             }
 
-            constexpr bool is_set(const enum_flags flag) const noexcept {
+            constexpr bool is_set(const enum_flags flag) const {
                 return static_cast<size_t>(flag) < flag_collector.size() && flag_collector.test(static_cast<size_t>(flag));
             }
         };
 
-        static flagset generate_default() noexcept {
+        static flagset generate_default() {
             static const flagset default_flags = []() {
                 flagset f;
                 f.set();
@@ -17245,11 +17329,11 @@ public:
             return default_flags;
         }
 
-        static void generate_default(flagset& flags) noexcept {
+        static void generate_default(flagset& flags) {
             flags = generate_default();
         }
 
-        static flagset generate_all() noexcept {
+        static flagset generate_all() {
             flagset flags = generate_default();
 
             for (const enum_flags technique : disabled_techniques) {
@@ -17262,11 +17346,11 @@ public:
             return flags;
         }
 
-        static void generate_all(flagset& flags) noexcept {
+        static void generate_all(flagset& flags) {
             flags = generate_all();
         }
 
-        static void reset_disabled_flagset() noexcept {
+        static void reset_disabled_flagset() {
             disabled_flag_collector.reset();
             for (const auto technique : disabled_techniques) {
                 const auto idx = static_cast<size_t>(technique);
@@ -17276,7 +17360,7 @@ public:
             }
         }
 
-        static void disable_experimental_techniques(flagset& flags) noexcept {
+        static void disable_experimental_techniques(flagset& flags) {
             for (const auto technique : experimental_techniques) {
                 const auto idx = static_cast<size_t>(technique);
                 if (idx < flags.size()) {
@@ -17285,7 +17369,7 @@ public:
             }
         }
 
-        static void disable_experimental_techniques() noexcept {
+        static void disable_experimental_techniques() {
             for (const auto technique : experimental_techniques) {
                 const auto idx = static_cast<size_t>(technique);
                 if (idx < disabled_flag_collector.size()) {
@@ -17316,17 +17400,23 @@ public:
             return collector;
         }
 
+        /* Terminates recursion when all variadic arguments have been processed */
+        template <typename flagset_type>
+        static inline void populate_flagset(flagset_type&) noexcept {}
+
+        template <typename flagset_type, typename head_type, typename... tail_types>
+        static inline void populate_flagset(flagset_type& collector, head_type head, tail_types... tail) {
+            collector.set(static_cast<std::size_t>(head), true);
+            populate_flagset(collector, tail...);
+        }
+
         /* Overload for 1 or more arguments */
         template <typename T, typename... Args>
         static VMAWARE_CONSTEXPR flagset arg_handler(T first, Args... args) {
             static_assert(verify_flags<T, Args...>(), "argument handler only accepts enum_flags variables");
 
             flagset collector;
-            /* C++11 initializer list expansion trick to loop over the variadic arguments one by one */
-            using expander = int[];
-            (void)expander {
-                0, (collector.set(static_cast<size_t>(first), true), 0), (collector.set(static_cast<size_t>(args), true), 0)...
-            };
+            populate_flagset(collector, first, args...);
 
             if (collector.test(DEFAULT)) {
                 collector |= generate_default();
@@ -17496,14 +17586,14 @@ public:
      * @link https://github.com/NotRequiem/VMAware/blob/main/docs/documentation.md#vmdetect
      */
     template <typename ...Args>
-    static bool detect(const Args ...args) {
+    static bool detect(const Args ...args) noexcept {
         /* Fetch all the flags in a std::bitset */
         const flagset flags = core::arg_handler(args...);
         return detect(flags);
     }
 
 
-    static bool detect(const settings& settings) {
+    static bool detect(const settings& settings) noexcept {
         const flagset flags = settings.flag_collector;
         return detect(flags);
     }
@@ -17541,14 +17631,14 @@ public:
      * @link https://github.com/NotRequiem/VMAware/blob/main/docs/documentation.md#vmpercentage
      */
     template <typename ...Args>
-    static u8 percentage(const Args ...args) {
+    static u8 percentage(const Args ...args) noexcept {
         /* Fetch all the flags in a std::bitset */
         const flagset flags = core::arg_handler(args...);
         return percentage(flags);
     }
 
 
-    static u8 percentage(const settings& settings) {
+    static u8 percentage(const settings& settings) noexcept {
         const flagset flags = settings.flag_collector;
         return percentage(flags);
     }
@@ -17791,13 +17881,13 @@ public:
      * @return std::uint8_t
      */
     template <typename ...Args>
-    static u8 detected_count(const Args ...args) {
+    static u8 detected_count(const Args ...args) noexcept {
         const flagset flags = core::arg_handler(args...);
         return detected_count(flags);
     }
 
 
-    static u8 detected_count(const settings& settings) {
+    static u8 detected_count(const settings& settings) noexcept {
         const flagset flags = settings.flag_collector;
         return detected_count(flags);
     }
@@ -18042,12 +18132,12 @@ public:
         std::vector<enum_flags> disabled_techniques;
 
         template <typename ...Args>
-        vmaware(Args ...args) {
+        vmaware(Args ...args) noexcept {
             const flagset flags = core::arg_handler(args...);
             initialise(flags);
         }
 
-        vmaware(const flagset& flags) {
+        vmaware(const flagset& flags) noexcept {
             initialise(flags);
         }
 
