@@ -16730,6 +16730,10 @@ public:
      */
     [[nodiscard]] static bool emulation() noexcept {
     #if (VMAWARE_X86)
+        if (util::is_x86_process_on_arm()) {
+            return false;
+        }
+
         /* 1. 15-byte instruction boundary enforcement */
         auto check_15_byte_limit = []() noexcept -> bool {
         #if (VMAWARE_WINDOWS)
