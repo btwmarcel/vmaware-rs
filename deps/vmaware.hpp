@@ -9776,7 +9776,54 @@ public:
                     constexpr u8 sata_addr_dummy[] = { 0x08, 0x5F, 0x41, 0x44, 0x52, 0x0C, 0x02, 0x00, 0x1F, 0x00 };
                     if (find_pattern("D0FA", 4) && find_pattern(reinterpret_cast<const char*>(sata_addr_dummy), sizeof(sata_addr_dummy))) {
                         vma_debug("FIRMWARE: Detected QEMU dummy SATA controller named D0FA on Device 31, Function 2");
-                        return core::add(brand_enum::NULL_BRAND, 0);
+                        return core::add(brand_enum::QEMU);
+                    }
+
+                    /* Interrupt query helpers */
+                    if (find_pattern("IQST", 4) && find_pattern("IQCR", 4) && find_pattern("PRR0", 4) && find_pattern("PRRI", 4)) {
+                        vma_debug("FIRMWARE: Detected QEMU/SeaBIOS IQST and IQCR interrupt query methods");
+                        return core::add(brand_enum::QEMU);
+                    }
+
+                    /* TPM 2.0 PPI via RAM OperationRegions */
+                    if (find_pattern("MSFT0101", 8) || find_pattern("TPM 2.0 Device", 14)) {
+                        if (find_pattern("TPP2", 4) && find_pattern("TPP3", 4) && find_pattern("TPFN", 4)) {
+                            vma_debug("FIRMWARE: Detected QEMU TPM Physical Presence Interface (TPP2/TPP3/TPFN)");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* Zeroed S5 Sleep State SLP_TYP package */
+                    {
+                        /* NameOp (0x08), '_', 'S', '5', '_', PackageOp (0x12), PkgLength (0x06), NumElements (0x04), Zero, Zero, Zero, Zero */
+                        constexpr u8 qemu_s5_sig[] = { 0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00 };
+                        if (find_pattern(reinterpret_cast<const char*>(qemu_s5_sig), sizeof(qemu_s5_sig))) {
+                            vma_debug("FIRMWARE: Detected QEMU zeroed _S5 SLP_TYP package");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* GPE Scope containing Name(_HID, "ACPI0006") directly */
+                    if (find_pattern("_GPE", 4) && find_pattern("ACPI0006", 8)) {
+                        /* ScopeOp (0x10), PkgLength, '_', 'G', 'P', 'E', '_', NameOp (0x08), '_', 'H', 'I', 'D', StringPrefix (0x0D), "ACPI0006" */
+                        constexpr u8 gpe_acpi0006[] = {
+                            0x10, 0x12, 0x5C, 0x2E, 0x5F, 0x47, 0x50, 0x45, 0x08, 0x5F, 0x48, 0x49, 0x44, 0x0D, 'A', 'C', 'P', 'I', '0', '0', '0', '6'
+                        };
+                        /* Wildcard scope container pattern */
+                        if (find_pattern(reinterpret_cast<const char*>(gpe_acpi0006 + 8), 14)) {
+                            vma_debug("FIRMWARE: Detected QEMU ACPI0006 declaration directly in GPE scope");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* Q35 MMCONFIG reservation device named MCFG with PNP0C01 */
+                    if (find_pattern("MCFG", 4) && find_pattern("PNP0C01", 7)) {
+                        /* DeviceOp (0x5B, 0x82), PkgLength, 'M', 'C', 'F', 'G', NameOp (0x08), '_', 'H', 'I', 'D' */
+                        constexpr u8 mcfg_dev[] = { 'M', 'C', 'F', 'G', 0x08, 0x5F, 0x48, 0x49, 0x44, 0x0D, 'P', 'N', 'P', '0', 'C', '0', '1' };
+                        if (find_pattern(reinterpret_cast<const char*>(mcfg_dev), sizeof(mcfg_dev))) {
+                            vma_debug("FIRMWARE: Detected QEMU Q35 MMCONFIG reservation device named MCFG");
+                            return core::add(brand_enum::QEMU);
+                        }
                     }
                 }
             }
@@ -9929,11 +9976,11 @@ public:
 
                             u8 source_mask = 0;
                             switch (source) {
-                            case 5:  source_mask = 1u << 0; break;
-                            case 9:  source_mask = 1u << 1; break;
-                            case 10: source_mask = 1u << 2; break;
-                            case 11: source_mask = 1u << 3; break;
-                            default: break;
+                                case 5:  source_mask = 1u << 0; break;
+                                case 9:  source_mask = 1u << 1; break;
+                                case 10: source_mask = 1u << 2; break;
+                                case 11: source_mask = 1u << 3; break;
+                                default: break;
                             }
 
                             /*
