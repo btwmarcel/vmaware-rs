@@ -3831,7 +3831,7 @@ public:
 
                 /* Ensure target group has at least 2 active CPUs */
                 if (util::popcount(static_cast<u64>(active_group_aff.Mask)) < 2) {
-                    const WORD group_count = GetActiveProcessorGroupCount();
+                    const WORD group_count = GetActiveProcessorCount(0) ? GetActiveProcessorGroupCount() : 0;
                     for (WORD g = 0; g < group_count; ++g) {
                         const DWORD c = GetActiveProcessorCount(g);
                         if (c >= 2) {
@@ -3905,7 +3905,7 @@ public:
                 while (offset + sizeof(LOGICAL_PROCESSOR_RELATIONSHIP) + sizeof(DWORD) <= len) {
                     auto* ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
                         raw_topo_buffer + offset
-                    );
+                        );
 
                     if (ptr->Size == 0 || offset + ptr->Size > len) {
                         break;
@@ -4190,8 +4190,13 @@ public:
                     }
                 }
 
-                DWORD best_logical = 0xFFFFFFFFu;
-                int best_score = (std::numeric_limits<int>::min)();
+                struct candidate_entry {
+                    DWORD logical = 0xFFFFFFFFu;
+                    int score = 0;
+                };
+
+                candidate_entry candidates[64]{};
+                DWORD candidate_count = 0;
 
                 for (DWORD i = 0; i < active_cpu_count; ++i) {
                     const DWORD logical = idxs[i];
@@ -4252,14 +4257,118 @@ public:
                         score -= 50;
                     }
 
-                    if (score > best_score) {
-                        best_score = score;
-                        best_logical = logical;
+                    candidates[candidate_count].logical = logical;
+                    candidates[candidate_count].score = score;
+                    candidate_count++;
+                }
+
+                if (candidate_count == 0) {
+                    return {};
+                }
+
+                for (DWORD i = 0; i < candidate_count - 1; ++i) {
+                    for (DWORD j = i + 1; j < candidate_count; ++j) {
+                        if (candidates[j].score > candidates[i].score) {
+                            const auto tmp = candidates[i];
+                            candidates[i] = candidates[j];
+                            candidates[j] = tmp;
+                        }
                     }
                 }
 
-                if (best_logical == 0xFFFFFFFFu) {
-                    return {};
+                DWORD best_logical = candidates[0].logical;
+
+                if (candidate_count > 1) {
+                    const DWORD probe_count = (candidate_count < 4) ? candidate_count : 4;
+
+                    alignas(64) struct {
+                        volatile u64 counter{ 0 };
+                        std::atomic<bool> start{ false };
+                        std::atomic<bool> done{ false };
+                    } calibration_state;
+
+                    GROUP_AFFINITY calib_counter_aff{};
+                    calib_counter_aff.Group = target_group;
+                    calib_counter_aff.Mask = static_cast<KAFFINITY>(1ull << counter_logical);
+
+                    std::thread calibration_thread([&]() noexcept {
+                        SetThreadGroupAffinity(current_thread, &calib_counter_aff, nullptr);
+                        SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST);
+                        SetThreadPriorityBoost(current_thread, TRUE);
+
+                        while (!calibration_state.start.load(std::memory_order_acquire)) {}
+
+                        u64 local_c = 0;
+                        while (!calibration_state.done.load(std::memory_order_relaxed)) {
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                            local_c++; calibration_state.counter = local_c;
+                        }
+                    });
+
+                    calibration_state.start.store(true, std::memory_order_release);
+
+                    GROUP_AFFINITY orig_thread_aff{};
+                    GetThreadGroupAffinity(current_thread, &orig_thread_aff);
+                    if (!orig_thread_aff.Mask) {
+                        orig_thread_aff = active_group_aff;
+                    }
+
+                    u64 best_metric = (std::numeric_limits<u64>::max)();
+                    volatile const u64* const c_ptr = &calibration_state.counter;
+
+                    for (DWORD c = 0; c < probe_count; ++c) {
+                        const DWORD cand_logical = candidates[c].logical;
+                        GROUP_AFFINITY cand_aff{};
+                        cand_aff.Group = target_group;
+                        cand_aff.Mask = static_cast<KAFFINITY>(1ull << cand_logical);
+                        SetThreadGroupAffinity(current_thread, &cand_aff, nullptr);
+
+                        u64 min_d = (std::numeric_limits<u64>::max)();
+                        u64 max_d = 0;
+                        size_t samples = 0;
+
+                        for (int p = 0; p < 32; ++p) {
+                            u64 sync = *c_ptr;
+                            size_t spins = 0;
+                            while (*c_ptr == sync && ++spins < 1000000);
+                            sync = *c_ptr;
+                            spins = 0;
+                            while (*c_ptr == sync && ++spins < 1000000);
+
+                            u64 t0 = *c_ptr;
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            _mm_lfence();
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            u64 t1 = *c_ptr;
+
+                            if (t1 > t0) {
+                                const u64 d = t1 - t0;
+                                if (d < min_d) min_d = d;
+                                if (d > max_d) max_d = d;
+                                samples++;
+                            }
+                        }
+
+                        if (samples >= 16) {
+                            const u64 jitter = max_d - min_d;
+                            const u64 metric = jitter + min_d;
+                            if (metric < best_metric) {
+                                best_metric = metric;
+                                best_logical = cand_logical;
+                            }
+                        }
+                    }
+
+                    calibration_state.done.store(true, std::memory_order_release);
+                    calibration_thread.join();
+
+                    SetThreadGroupAffinity(current_thread, &orig_thread_aff, nullptr);
                 }
 
                 vma_debug("TIMER: Measurement thread -> CPU ", best_logical, " | Counter thread -> CPU ", counter_logical);
@@ -9825,6 +9934,104 @@ public:
                             return core::add(brand_enum::QEMU);
                         }
                     }
+
+                    /* PCI0._CRS I/O Port Exclusion & VGA MMIO Layout */
+                    {
+                        constexpr u8 qemu_pci0_crs_signature[] = {
+                            0x47, 0x01, 0xF8, 0x0C, 0xF8, 0x0C, 0x01, 0x08, // IO Port 0xCF8-0xCFF
+                            0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00, // WordIO 0x0000-0x0CF7
+                            0x00, 0x00, 0xF7, 0x0C, 0x00, 0x00, 0xF8, 0x0C,
+                            0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00, // WordIO 0x0D00-0xFFFF
+                            0x00, 0x0D, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xF3,
+                            0x87, 0x17, 0x00, 0x00, 0x0C, 0x03, 0x00, 0x00, // DWordMemory 0x000A0000-0x000BFFFF
+                            0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xFF, 0xFF,
+                            0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x02, 0x00
+                        };
+
+                        if (find_pattern(reinterpret_cast<const char*>(qemu_pci0_crs_signature), sizeof(qemu_pci0_crs_signature))) {
+                            vma_debug("FIRMWARE: Detected QEMU PCI0._CRS I/O exclusion and VGA MMIO layout");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* Synthetic GSI Link Devices (GSIA-GSIH) with empty _DIS/_SRS and fixed GSI descriptors */
+                    {
+                        /* Extended Interrupt Descriptor for GSI 16 (0x10): Len 6, Active-High/Level, IRQ 16 */
+                        constexpr u8 gsi16_descriptor[] = {
+                            0x89, 0x06, 0x00, 0x09, 0x01, 0x10, 0x00, 0x00, 0x00, 0x79, 0x00
+                        };
+                        /* Empty _DIS stub: MethodOp, PkgLen 0x06, '_DIS', Flags 0x00 */
+                        constexpr u8 empty_dis_stub[] = { 0x14, 0x06, 0x5F, 0x44, 0x49, 0x53, 0x00 };
+                        /* Empty _SRS stub: MethodOp, PkgLen 0x07, '_SRS', Flags 0x01 */
+                        constexpr u8 empty_srs_stub[] = { 0x14, 0x07, 0x5F, 0x53, 0x52, 0x53, 0x01 };
+
+                        if (find_pattern(reinterpret_cast<const char*>(gsi16_descriptor), sizeof(gsi16_descriptor)) &&
+                            find_pattern(reinterpret_cast<const char*>(empty_dis_stub), sizeof(empty_dis_stub)) &&
+                            find_pattern(reinterpret_cast<const char*>(empty_srs_stub), sizeof(empty_srs_stub))) {
+                            vma_debug("FIRMWARE: Detected QEMU synthetic GSI link device structure (GSIA-GSIH)");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* PCIe Root Bridge _OSC Capability Masking (Local0 &= 0x1F and CDW1 |= 0x10) */
+                    {
+                        /* Host Bridge UUID: 33db4d5b-1ff7-401c-9657-7441c03dd766 */
+                        constexpr u8 pci_host_bridge_uuid[] = {
+                            0x5B, 0x4D, 0xDB, 0x33, 0xF7, 0x1F, 0x1C, 0x40,
+                            0x96, 0x57, 0x74, 0x41, 0xC0, 0x3D, 0xD7, 0x66
+                        };
+                        /* AndOp (0x7B), CDW3, BytePrefix (0x0A), 0x1F, Local0 (0x60) */
+                        constexpr u8 osc_and_mask_sig[] = {
+                            0x7B, 0x43, 0x44, 0x57, 0x33, 0x0A, 0x1F, 0x60
+                        };
+
+                        if (find_pattern(reinterpret_cast<const char*>(pci_host_bridge_uuid), sizeof(pci_host_bridge_uuid)) &&
+                            find_pattern(reinterpret_cast<const char*>(osc_and_mask_sig), sizeof(osc_and_mask_sig))) {
+                            vma_debug("FIRMWARE: Detected QEMU PCIe _OSC capability masking implementation");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* 5-argument EDSM PCI Device-Labeling Helper Method */
+                    {
+                        /* MethodOp (0x14), length wildcard skipped, 'E', 'D', 'S', 'M', Flags 0x05 (5 args, serialized) */
+                        constexpr u8 edsm_decl[] = { 'E', 'D', 'S', 'M', 0x05 };
+                        /* Device Labeling UUID: e5c937d0-3553-4d7a-9117-ea4d19c3434d */
+                        constexpr u8 device_labeling_uuid[] = {
+                            0xD0, 0x37, 0xC9, 0xE5, 0x53, 0x35, 0x7A, 0x4D,
+                            0x91, 0x17, 0xEA, 0x4D, 0x19, 0xC3, 0x43, 0x4D
+                        };
+
+                        if (find_pattern(reinterpret_cast<const char*>(edsm_decl), sizeof(edsm_decl)) &&
+                            find_pattern(reinterpret_cast<const char*>(device_labeling_uuid), sizeof(device_labeling_uuid))) {
+                            vma_debug("FIRMWARE: Detected QEMU EDSM device-labeling helper method");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
+
+                    /* PIRQ Link Devices _PRS Descriptor (Fixed IRQs 5, 10, 11) */
+                    {
+                        /* Extended Interrupt Descriptor: Length 14, 3 interrupts: 5, 10, 11 */
+                        constexpr u8 pirq_prs_irqs[] = {
+                            0x89, 0x0E, 0x00, 0x09, 0x03,
+                            0x05, 0x00, 0x00, 0x00,
+                            0x0A, 0x00, 0x00, 0x00,
+                            0x0B, 0x00, 0x00, 0x00,
+                            0x79, 0x00
+                        };
+
+                        /* OperationRegion (PIRQ, PCI_Config, 0x60, 0x0C) */
+                        constexpr u8 pirq_opregion[] = {
+                            0x5B, 0x80, 'P', 'I', 'R', 'Q', 0x02, 0x0A, 0x60, 0x0A, 0x0C
+                        };
+
+                        if (find_pattern(reinterpret_cast<const char*>(pirq_prs_irqs), sizeof(pirq_prs_irqs)) &&
+                            find_pattern(reinterpret_cast<const char*>(pirq_opregion), sizeof(pirq_opregion))) {
+                            vma_debug("FIRMWARE: Detected QEMU PIRQ router OperationRegion and fixed IRQ 5/10/11 _PRS descriptor");
+                            return core::add(brand_enum::QEMU);
+                        }
+                    }
                 }
             }
 
@@ -10989,7 +11196,7 @@ public:
                 const bool lacks_self_test = (oacs & (1 << 4)) == 0;
 
                 if (supports_virtualization_mgmt && supports_namespace_mgmt && lacks_self_test) {
-                    vma_debug("NVME_HEURISTIC: Virtual OACS signature detected");
+                    vma_debug("DISK: Virtual OACS signature detected");
                     return true;
                 }
             }
@@ -10997,7 +11204,7 @@ public:
             /* Verify if the drive supports exactly 8 formats containing metadata, enabled logical sectors */
             BYTE identify_ns[4096];
             RtlZeroMemory(identify_ns, sizeof(identify_ns));
-            if (query_protocol(StorageDeviceProtocolSpecificProperty, 1, 0x00, 1, identify_ns, sizeof(identify_ns))) {
+            if (query_protocol(StorageAdapterProtocolSpecificProperty, 1, 0x00, 1, identify_ns, sizeof(identify_ns))) {
                 const u8 nlbaf = identify_ns[25]; /* Number of LBA Formats (0 - based) */
                 if (nlbaf == 7) { /* 8 available formats */
                     bool has_metadata_option = false;
@@ -11011,7 +11218,7 @@ public:
                         }
                     }
                     if (has_metadata_option) {
-                        vma_debug("NVME_HEURISTIC: Synthetic LBA structure with metadata option detected");
+                        vma_debug("DISK: Synthetic LBA structure with metadata option detected");
                         return core::add(brand_enum::QEMU);
                     }
                 }
