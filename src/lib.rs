@@ -178,12 +178,12 @@ pub fn vm_type() -> Result<VmType, VmawareError> {
     }
 }
 
-/// Check for a specific technique based on flag argument
-pub fn check(flag: flags) -> Result<bool, VmawareError> {
+/// Check for a specific technique
+pub fn check(technique: Technique) -> Result<bool, VmawareError> {
     let mut out: bool = false;
     let mut err: *mut c_char = std::ptr::null_mut();
 
-    let ok = unsafe { vmaware_check(flag as u8, &mut out, &mut err) };
+    let ok = unsafe { vmaware_check(technique as u8, &mut out, &mut err) };
 
     if ok {
         unsafe { take_ffi_string(err) };
@@ -289,8 +289,7 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/flags_bindgen.rs"));
 }
 
-pub use bindings::VM_brand_enum as brands;
-pub use bindings::VM_enum_flags as flags;
+pub use bindings::Technique;
 
 mod vm;
 

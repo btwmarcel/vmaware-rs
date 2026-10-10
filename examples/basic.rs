@@ -1,4 +1,4 @@
-use vmaware::{brand, check, conclusion, detect, detected_count, flags, percentage, technique_count, vm_type};
+use vmaware::{brand, check, conclusion, detect, detected_count, Technique, percentage, technique_count, vm_type};
 
 fn main() -> Result<(), vmaware::VmawareError> {
     println!("is vm: {}", detect(true)?); // Is running inside a VM? (high threshold)
@@ -7,9 +7,9 @@ fn main() -> Result<(), vmaware::VmawareError> {
     println!("conclusion: {}", conclusion()?);
     println!("percentage: {}%", percentage()?);
     println!("detected techniques: {}/{}", detected_count()?, technique_count());
-
+    
     // check a single technique
-    if check(flags::HYPERVISOR_BIT)? {
+    if check(Technique::HypervisorBit)? {
         println!("hypervisor bit is set");
     }
 

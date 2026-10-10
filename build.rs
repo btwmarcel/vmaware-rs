@@ -1,3 +1,5 @@
+use bindgen_helpers::{Renamer, rename_enum};
+
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
@@ -11,24 +13,26 @@ fn main() {
 
     build.compile("vmaware-bridge");
 
-    let mut builder = bindgen::Builder::default()
+    let mut renamer = Renamer::new(false);
+
+    rename_enum!(
+        renamer,
+        "enum_flags" => "Technique",
+        case: Pascal,
+    );
+
+    renamer.rename_item("VM_enum_flags", "Technique");
+
+    let builder = bindgen::Builder::default()
         .header("deps/vmaware.hpp")
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++20")
         .allowlist_type("VM_enum_flags")
-        .allowlist_type("VM_brand_enum")
         .allowlist_var("VM_technique_count")
         .rustified_enum("VM_enum_flags")
-        .rustified_enum("VM_brand_enum");
+        .parse_callbacks(Box::new(renamer));
 
-    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        // pretend to be MSVC 19.30 to fix __cpuid_count build error
-        builder = builder
-            .clang_arg("-fms-compatibility")
-            .clang_arg("-fms-compatibility-version=19.30"); 
-    }
-    
     let bindings = builder
         .generate()
         .expect("bindgen failed to generate bindings");
