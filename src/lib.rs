@@ -280,6 +280,10 @@ pub fn brand(multiple: bool) -> Result<String, VmawareError> {
     }
 }
 
+pub fn technique_count() -> u16 {
+    unsafe { bindings::VM_technique_count }
+}
+
 #[allow(non_camel_case_types, non_snake_case, dead_code)]
 mod bindings {
     include!(concat!(env!("OUT_DIR"), "/flags_bindgen.rs"));
@@ -287,3 +291,5 @@ mod bindings {
 
 pub use bindings::VM_brand_enum as brands;
 pub use bindings::VM_enum_flags as flags;
+
+pub mod vm;

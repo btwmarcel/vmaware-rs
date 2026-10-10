@@ -14,7 +14,7 @@ Rust bindings to [VMAware](https://github.com/NotRequiem/VMAware), a cross-platf
 vmaware = { git = "https://github.com/btwmarcel/vmaware-rs" }
 ```
 
-See the [basic](examples/basic.rs) example for usage.
+See the [examples](examples) for usage.
 
 ## License
 
