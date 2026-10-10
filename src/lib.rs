@@ -292,4 +292,6 @@ mod bindings {
 pub use bindings::VM_brand_enum as brands;
 pub use bindings::VM_enum_flags as flags;
 
-pub mod vm;
+mod vm;
+
+pub use vm::{Vm, VmBuilder};

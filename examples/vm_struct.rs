@@ -1,4 +1,4 @@
-use vmaware::vm::VmBuilder;
+use vmaware::VmBuilder;
 
 fn main() -> Result<(), vmaware::VmawareError> {
     let vm = VmBuilder::new()
