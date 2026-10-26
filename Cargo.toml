@@ -4,6 +4,7 @@ version = "2.0.0"
 edition = "2024"
 
 [build-dependencies]
-bindgen = "0.72.1"
 cc = "1.3.0"
+# Bindgen_helpers re-exports all of bindgen's public API at the root level
+# Do not use bindgen directly to avoid some version conflicts
 bindgen_helpers = "0.6.1"

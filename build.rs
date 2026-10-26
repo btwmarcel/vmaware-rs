@@ -23,7 +23,7 @@ fn main() {
 
     renamer.rename_item("VM_enum_flags", "Technique");
 
-    let builder = bindgen::Builder::default()
+    let builder = bindgen_helpers::Builder::default()
         .header("deps/vmaware.hpp")
         .clang_arg("-x")
         .clang_arg("c++")
