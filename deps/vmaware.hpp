@@ -6148,7 +6148,7 @@ public:
             else {
                 if (!is_root_partition()) {
                     if (eax() == 11 && is_hyperv_present()) {
-                        vma_debug("HYPER-X: Detected Hyper-V guest VM");
+                        vma_debug("HYPER-X: Detected Hyper-V guest VM or Windows Sandbox");
                         core::add(brand_enum::HYPERV);
                         state = HYPERV_REAL_VM;
                     }
@@ -11091,7 +11091,8 @@ public:
             "NtAllocateVirtualMemory",
             "NtFreeVirtualMemory",
             "NtClose",
-            "NtWaitForSingleObject"
+            "NtWaitForSingleObject",
+            "NtCancelIoFileEx"
         };
         void* functions[ARRAYSIZE(function_names)] = {};
         memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
@@ -11103,6 +11104,7 @@ public:
         using ntclose_fn = NTSTATUS(__stdcall*)(HANDLE);
         using rtl_init_unicode_string_fn = void(__stdcall*)(PUNICODE_STRING, PCWSTR);
         using nt_wait_for_single_object_fn = NTSTATUS(__stdcall*)(HANDLE, BOOLEAN, PLARGE_INTEGER);
+        using nt_cancel_io_file_ex_fn = NTSTATUS(__stdcall*)(HANDLE, PIO_STATUS_BLOCK, PIO_STATUS_BLOCK);
 
         const auto rtl_init_unicode_string = reinterpret_cast<rtl_init_unicode_string_fn>(functions[0]);
         const auto nt_open_file = reinterpret_cast<ntopenfile_fn>(functions[1]);
@@ -11111,10 +11113,11 @@ public:
         const auto nt_free_virtual_memory = reinterpret_cast<nt_free_virtual_memory_fn>(functions[4]);
         const auto nt_close = reinterpret_cast<ntclose_fn>(functions[5]);
         const auto nt_wait_for_single_object = reinterpret_cast<nt_wait_for_single_object_fn>(functions[6]);
+        const auto nt_cancel_io_file_ex = reinterpret_cast<nt_cancel_io_file_ex_fn>(functions[7]);
 
         if (!rtl_init_unicode_string || !nt_open_file || !nt_device_io_control_file ||
             !nt_allocate_virtual_memory || !nt_free_virtual_memory || !nt_close ||
-            !nt_wait_for_single_object) {
+            !nt_wait_for_single_object || !nt_cancel_io_file_ex) {
             return result;
         }
 
@@ -11195,14 +11198,23 @@ public:
                     allocation_base, static_cast<ULONG>(total_size),
                     allocation_base, static_cast<ULONG>(total_size));
 
-                /* If STATUS_PENDING wait fails */
+                /* If STATUS_PENDING, wait for completion or drain on failure */
                 if (query_status == static_cast<NTSTATUS>(0x00000103L)) {
                     const NTSTATUS wait_status = nt_wait_for_single_object(dev, FALSE, nullptr);
                     if (NT_SUCCESS(wait_status)) {
                         query_status = query_iosb.Status;
                     }
                     else {
-                        query_status = static_cast<NTSTATUS>(0xC0000001L); /* STATUS_UNSUCCESSFUL */
+                        /*
+                         * If wait fails, cancel the in-flight IRP to prevent the driver
+                         * from writing to stack_query_buf or query_iosb after this scope exits
+                         */
+                        if (nt_cancel_io_file_ex) {
+                            IO_STATUS_BLOCK cancel_iosb{};
+                            nt_cancel_io_file_ex(dev, &query_iosb, &cancel_iosb);
+                            nt_wait_for_single_object(dev, FALSE, nullptr);
+                        }
+                        query_status = static_cast<NTSTATUS>(0xC0000001L);
                     }
                 }
 
@@ -11258,12 +11270,52 @@ public:
                     vma_debug("DISK: Virtual OACS signature detected");
                     return true;
                 }
+
+                /* SUBNQN contains QEMU reverse domain authority (ctrl.c / subsys.c) */
+                char subnqn[256]{};
+                std::memcpy(subnqn, &identify_ctrl[768], sizeof(subnqn) - 1);
+                subnqn[sizeof(subnqn) - 1] = '\0';
+                if (std::strstr(subnqn, "org.qemu") != nullptr) {
+                    vma_debug("DISK: QEMU SUBNQN signature detected");
+                    return core::add(brand_enum::QEMU);
+                }
+
+                /* IEEE OUI registered to QEMU (00:54:52 or byte-swapped 52:54:00) */
+                const u8 oui0 = identify_ctrl[73];
+                const u8 oui1 = identify_ctrl[74];
+                const u8 oui2 = identify_ctrl[75];
+                if ((oui0 == 0x00 && oui1 == 0x54 && oui2 == 0x52) ||
+                    (oui0 == 0x52 && oui1 == 0x54 && oui2 == 0x00)) {
+                    vma_debug("DISK: QEMU IEEE OUI signature detected");
+                    return core::add(brand_enum::QEMU);
+                }
+
+                /* Firmware-slot log frs1 = "1.0", contradicting Identify fr */
+                BYTE fw_log[512]{};
+                if (query_protocol(StorageAdapterProtocolSpecificProperty, 2 /* NVMeDataTypeLogPage */, 0x03 /* LID 03h: Firmware Slot Info */, 0, fw_log, sizeof(fw_log))) {
+                    const bool frs1_is_default = (fw_log[8] == '1' && fw_log[9] == '.' && fw_log[10] == '0');
+                    const bool fr_mismatch = (std::memcmp(&fw_log[8], &identify_ctrl[64], 8) != 0);
+                    if (frs1_is_default && fr_mismatch) {
+                        vma_debug("DISK: NVMe firmware slot log frs1 contradicts Identify fr");
+                        return core::add(brand_enum::QEMU);
+                    }
+                }
             }
 
             /* Verify if the drive supports exactly 8 formats containing metadata, enabled logical sectors */
             BYTE identify_ns[4096];
             RtlZeroMemory(identify_ns, sizeof(identify_ns));
             if (query_protocol(StorageAdapterProtocolSpecificProperty, 1, 0x00, 1, identify_ns, sizeof(identify_ns))) {
+                /* EUI64 auto-generated from NVME_EUI64_DEFAULT (0x5254000000000000) */
+                const u8 eui0 = identify_ns[120];
+                const u8 eui1 = identify_ns[121];
+                const u8 eui2 = identify_ns[122];
+                if ((eui0 == 0x52 && eui1 == 0x54 && eui2 == 0x00) ||
+                    (eui0 == 0x00 && eui1 == 0x54 && eui2 == 0x52)) {
+                    vma_debug("DISK: QEMU namespace EUI64 signature detected");
+                    return core::add(brand_enum::QEMU);
+                }
+
                 const u8 nlbaf = identify_ns[25]; /* Number of LBA Formats (0 - based) */
                 if (nlbaf == 7) { /* 8 available formats */
                     bool has_metadata_option = false;
@@ -11345,12 +11397,24 @@ public:
                 }
             }
 
+            struct storage_descriptor_header {
+                DWORD Version;
+                DWORD Size;
+            };
+            constexpr size_t header_min_size = sizeof(storage_descriptor_header); // 8 bytes
+
             BYTE* allocated_buffer = nullptr;
             SIZE_T allocated_size = 0;
 
-            const bool has_initial_descriptor = (iosb.Information >= sizeof(STORAGE_DEVICE_DESCRIPTOR));
+            const bool has_header = (iosb.Information >= header_min_size);
             const bool is_overflow = (st == static_cast<NTSTATUS>(0x80000005L));
-            const bool need_realloc = has_initial_descriptor && (
+
+            /*
+             * Reallocate if:
+             * Driver returned STATUS_BUFFER_OVERFLOW and populated the 8-byte header Size
+             * Driver returned NT_SUCCESS, but the reported size exceeds our 1024 stack buffer
+             */
+            const bool need_realloc = has_header && (
                 (is_overflow && descriptor->Size >= sizeof(STORAGE_DEVICE_DESCRIPTOR)) ||
                 (NT_SUCCESS(st) && descriptor->Size > sizeof(stack_buffer))
             );
@@ -11372,15 +11436,23 @@ public:
 
                     iosb = {};
                     st = nt_device_io_control_file(device, nullptr, nullptr, nullptr, &iosb, ioctl, &query, sizeof(query), allocated_buffer, static_cast<ULONG>(allocated_size));
+
                     if (st == static_cast<NTSTATUS>(0x00000103L)) {
                         const NTSTATUS wait_status = nt_wait_for_single_object(device, FALSE, nullptr);
                         if (NT_SUCCESS(wait_status)) {
                             st = iosb.Status;
                         }
                         else {
+                            /* To avoid dangling write before free */
+                            if (nt_cancel_io_file_ex) {
+                                IO_STATUS_BLOCK cancel_iosb{};
+                                nt_cancel_io_file_ex(device, &iosb, &cancel_iosb);
+                                nt_wait_for_single_object(device, FALSE, nullptr);
+                            }
                             st = static_cast<NTSTATUS>(0xC0000001L);
                         }
                     }
+
                     if (!NT_SUCCESS(st)) {
                         PVOID free_base = reinterpret_cast<PVOID>(allocated_buffer);
                         SIZE_T free_size = 0;
@@ -11510,37 +11582,71 @@ public:
                 string::starts_with(name, "sg") ||
                 string::starts_with(name, "hd") ||
                 string::starts_with(name, "vd")) {
+
                 const char sys_block_str[] = "/sys/block/";
-                const char device_serial_str[] = "/device/serial";
-
                 char buf[512];
-                int written = snprintf(buf, sizeof(buf), "%s%s%s", sys_block_str, name, device_serial_str);
-                if (written < 0 || static_cast<size_t>(written) >= sizeof(buf)) {
-                    continue;
+
+                /* Evaluate device serial */
+                int written = snprintf(buf, sizeof(buf), "%s%s/device/serial", sys_block_str, name);
+                if (written > 0 && static_cast<size_t>(written) < sizeof(buf)) {
+                    const int fd = open(buf, O_RDONLY);
+                    if (fd >= 0) {
+                        char serial[1024];
+                        const ssize_t rsize = read(fd, serial, sizeof(serial) - 1);
+                        close(fd);
+
+                        if (rsize > 0) {
+                            serial[static_cast<size_t>(rsize)] = '\0';
+                            size_t valid_len = static_cast<size_t>(rsize);
+                            while (valid_len > 0 && (serial[valid_len - 1] == '\n' || serial[valid_len - 1] == '\r' || serial[valid_len - 1] == ' ')) {
+                                serial[--valid_len] = '\0';
+                            }
+
+                            vma_debug("DISK: ", static_cast<const char*>(serial));
+                            if (is_qemu_serial(serial, valid_len) || is_vbox_serial(serial, valid_len)) {
+                                result = true;
+                                break;
+                            }
+                        }
+                    }
                 }
 
-                const int fd = open(buf, O_RDONLY);
-                if (fd < 0) {
-                    continue;
+                /* SUBNQN sysfs attribute for QEMU domain (evaluated even if serial is missing) */
+                written = snprintf(buf, sizeof(buf), "%s%s/device/subsysnqn", sys_block_str, name);
+                if (written > 0 && static_cast<size_t>(written) < sizeof(buf)) {
+                    const int nqn_fd = open(buf, O_RDONLY);
+                    if (nqn_fd >= 0) {
+                        char nqn[256];
+                        const ssize_t nqn_rsize = read(nqn_fd, nqn, sizeof(nqn) - 1);
+                        close(nqn_fd);
+                        if (nqn_rsize > 0) {
+                            nqn[nqn_rsize] = '\0';
+                            if (std::strstr(nqn, "org.qemu") != nullptr) {
+                                vma_debug("DISK: QEMU SUBNQN detected");
+                                result = true;
+                                break;
+                            }
+                        }
+                    }
                 }
 
-                char serial[1024];
-                const ssize_t rsize = read(fd, serial, sizeof(serial) - 1);
-                close(fd);
-                if (rsize <= 0) {
-                    continue;
-                }
-
-                serial[static_cast<size_t>(rsize)] = '\0';
-                size_t valid_len = static_cast<size_t>(rsize);
-                while (valid_len > 0 && (serial[valid_len - 1] == '\n' || serial[valid_len - 1] == '\r' || serial[valid_len - 1] == ' ')) {
-                    serial[--valid_len] = '\0';
-                }
-
-                vma_debug("DISK: ", static_cast<const char*>(serial));
-                if (is_qemu_serial(serial, valid_len) || is_vbox_serial(serial, valid_len)) {
-                    result = true;
-                    break;
+                /* EUI-64/WWID sysfs attribute for QEMU OUI prefix */
+                written = snprintf(buf, sizeof(buf), "%s%s/device/wwid", sys_block_str, name);
+                if (written > 0 && static_cast<size_t>(written) < sizeof(buf)) {
+                    const int wwid_fd = open(buf, O_RDONLY);
+                    if (wwid_fd >= 0) {
+                        char wwid[256];
+                        const ssize_t wwid_rsize = read(wwid_fd, wwid, sizeof(wwid) - 1);
+                        close(wwid_fd);
+                        if (wwid_rsize > 0) {
+                            wwid[wwid_rsize] = '\0';
+                            if (std::strstr(wwid, "eui.525400") != nullptr) {
+                                vma_debug("DISK: QEMU namespace EUI64 detected");
+                                result = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -13258,13 +13364,15 @@ public:
                         *ctx->hypervisor_caught = true;
                     }
                 }
+                else {
+                    if (util::hyper_x() != HYPERV_UNKNOWN) {
+                        vma_debug("TRAP: L0 hypervisor with #DB interception disabled present");
+                        *ctx->hypervisor_caught = true;
+                    }
+                }
 
-                /* Clear Trap Flag to stop single-stepping */
                 info->ContextRecord->EFlags &= ~0x100;
-
-                /* Clear DR7 Local Enable 0 to disable the hardware breakpoint */
                 info->ContextRecord->Dr7 &= ~1;
-
                 info->ContextRecord->Dr6 = 0;
 
                 return EXCEPTION_CONTINUE_EXECUTION;
@@ -18590,7 +18698,7 @@ std::array<VM::core::technique, VM::enum_size + 1> VM::core::technique_table = [
             {VM::EMULATION, {100, VM::emulation}},
             {VM::DLL, {50, VM::dll}},
             {VM::DISPLAY, {25, VM::display}},
-            {VM::VIRTUAL_REGISTRY, {90, VM::virtual_registry}},
+            {VM::VIRTUAL_REGISTRY, {100, VM::virtual_registry}},
             {VM::MUTEX, {100, VM::mutex}},
             {VM::VPC_INVALID, {75, VM::vpc_invalid}},
             {VM::VMWARE_STR, {35, VM::vmware_str}},
