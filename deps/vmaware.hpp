@@ -4,192 +4,14 @@
  * ██║   ██║██╔████╔██║███████║██║ █╗ ██║███████║██████╔╝█████╗
  * ╚██╗ ██╔╝██║╚██╔╝██║██╔══██║██║███╗██║██╔══██║██╔══██╗██╔══╝
  *  ╚████╔╝ ██║ ╚═╝ ██║██║  ██║╚███╔███╔╝██║  ██║██║  ██║███████╗
- *   ╚═══╝  ╚═╝     ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ 2.8.2 (September 2026)
+ *   ╚═══╝  ╚═╝     ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ 2.8.2 (November 2026)
  *
- *  C++ VM detection library
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Requiem and contributors.
  *
- *  - Developed by: Requiem (https://github.com/NotRequiem)
- *  - Former developer and creator: kernelwernel (https://github.com/kernelwernel)
- *  - Contributed by:
- *      - Alex (https://github.com/greenozon)
- *      - Marek Knápek (https://github.com/MarekKnapek)
- *      - Vladyslav Miachkov (https://github.com/fameowner99)
- *      - Alan Tse (https://github.com/alandtse)
- *      - Georgii Gennadev (https://github.com/D00Movenok)
- *      - utoshu (https://github.com/utoshu)
- *      - Jyd (https://github.com/jyd519)
- *      - dmfrpro (https://github.com/dmfrpro)
- *      - Pierre-Étienne Messier (https://github.com/pemessier)
- *      - Teselka (https://github.com/Teselka)
- *      - Kyun-J (https://github.com/Kyun-J)
- *      - luukjp (https://github.com/luukjp)
- *      - Lorenzo Rizzotti (https://github.com/Dreaming-Codes) 
- *      - virtfunc (https://github.com/virtfunc)
- *      - Wiisus (https://github.com/wiisus)
- *      - Max Ufer (https://github.com/Manny684)
- *      - everdox (https://github.com/everdox)
- *  - Repository: https://github.com/NotRequiem/VMAware
- *  - Docs: https://github.com/NotRequiem/VMAware/docs/documentation.md
- *  - Full credits: https://github.com/NotRequiem/VMAware#credits-and-contributors-%EF%B8%8F
- *  - License: MIT
- *
- *
- * ============================== SECTIONS ==================================
- * - enums for publicly accessible techniques  => line 832
- * - struct for internal cpu operations        => line 1095
- * - struct for internal memoization           => line 3351
- * - struct for internal utility functions     => line 4680
- * - struct for internal core components       => line 15654
- * - start of VM detection technique list      => line 6329
- * - start of public VM detection functions    => line 16152
- * - start of externally defined variables     => line 16855
- *
- *
- * ============================== EXAMPLE ===================================
- * #include "vmaware.hpp"
- * #include <iostream>
- * 
- * int main() {
- *     if (VM::detect()) {
- *         std::cout << "Virtual machine detected!" << "\n";
- *     } else {
- *         std::cout << "Running on bare metal" << "\n";
- *     }
- * 
- *     std::cout << "VM name: " << VM::brand() << "\n";
- *     std::cout << "VM type: " << VM::type() << "\n";
- *     std::cout << "VM certainty: " << (int)VM::percentage() << "%" << "\n";
- * }
- * 
- *
- * ========================== CODE DOCUMENTATION =============================
- *
- *
- * Welcome! This is just a preliminary text to lay the context of how it works, 
- * how it's structured, and to guide anybody who's trying to understand the whole code. 
- * Reading over 10k+ lines of other people's C++ code is obviously not an easy task, 
- * and that's perfectly understandable. We'd struggle as well if we were in your position
- * while not even knowing where to start. So here's a more human-friendly explanation:
- * 
- * 
- * Firstly, the lib is completely static, meaning that there's no need for struct 
- * constructors to be initialized (unless you're using the VM::vmaware struct).
- * The main focus of the lib are the tables:
- *  - the TECHNIQUE table stores all the VM detection technique information in a std::array 
- * 
- *  - the BRAND table stores every VM brand as a std::array as well, but as a scoreboard. 
- *    This means that if a VM detection technique has detected a VM brand, that brand will have an
- *    incremented score. After every technique is run, the brand with the highest score
- *    is chosen as the officially detected brand. 
- * 
- * The techniques are all static functions, which all return a boolean. There are a few 
- * categories of techniques that target vastly different things such as OS queries, CPU
- * values, other hardware values, firmware data, and system files just to name a few. 
- * 
- * 
- * Secondly, there are multiple modules in the lib that are combined to integrate with
- * the functionalities needed:
- *    - core module:
- *        This contains many important components such as the aforementioned tables, 
- *        the standard structure for how VM techniques are organised, functionalities 
- *        to run all the techniques in the technique table, functionalities to run
- *        custom-made techniques by the user, and an argument handler based on the 
- *        argument input by the user.
- *
- *    - cpu module:
- *        As the name suggests, this contains functionalities for the CPU. There are
- *        many techniques that utilise some kind of low-level CPU interaction, so 
- *        this module was added to further standardise it.
- * 
- *    - memo module:
- *        This contains functionalities for memoizing technique results (not to be
- *        confused with "memorization"). More specifically, this allows us to cache 
- *        a technique result in a table where each entry contains a technique and its
- *        result. This allows us to avoid re-running techniques which happens a lot
- *        internally. Some techniques are costlier than others in terms of 
- *        performance, so this is a crucial module that allows us to save a lot of
- *        time. Additionally, it contains other memoization caches for various other
- *        things for convenience. 
- * 
- *    - util module:
- *        This contains many utility functionalities to be used by the techniques.
- *        Examples of functionalities include file I/O, registries, permission 
- *        checks, system commands, debugs, OS queries, Hyper-X, and so on. 
- * 
- * 
- * Thirdly, We'll explain in this section how all of these facets of the lib interact with 
- * each other. Let's take an example with VM::detect(), where it returns a boolean true or 
- * false if a VM has been detected or not. The chain of steps it takes goes like this:
- *    1. The function tries to handle the user arguments (if there's 
- *       any), and generates a std::bitset. This bitset has a length of 
- *       every VM detection technique + settings, where each bit 
- *       corresponds to whether this technique will be run or not, 
- *       and which settings were selected. 
- * 
- *    2. After the bitset has been generated, this information is then 
- *       passed to the core module of the lib. It analyses the bitset, 
- *       and runs every VM detection technique that has been selected, 
- *       while ignoring the ones that weren't (by default most of them 
- *       are already selected anyway). The function that does this 
- *       mechanism is core::run_all()
- * 
- *    3. While the core::run_all() function is being run, it checks if 
- *       each technique has already been memoized or not. If it has, 
- *       retrieve the result from the cache and move to the next technique. 
- *       If it hasn't, run the technique and cache the result in the 
- *       cache table. 
- * 
- *    4. After every technique has been executed, this generates a 
- *       uint16_t score. Every technique has a score value between 0 to 
- *       100, and if a VM is detected then this score is accumulated to 
- *       a total. If the total is above 150, that means it's a VM[1]. 
- * 
- * 
- * There are other functions such as VM::brand(), which returns a std::string of the most 
- * likely brand that your system is running on. It has a bit of a different mechanism:
- *    1. Same as step 1 in VM::detect()
- * 
- *    2. Check if the majority of techniques have been run already and stored
- *       in the cache. If not, invoke core::run_all(). The reason why this is
- *       important is because a lot of techniques increment a point for its 
- *       respected brand that was detected. For example, if the VM::QEMU_USB
- *       technique has detected a VM, it'll add a score to the QEMU brand in
- *       the scoreboard. If no technique were run, then there's no way to
- *       populate the scoreboard with any points. After every VM detection 
- *       technique has been invoked/retrieved, the brand scoreboard is now
- *       ready to be analysed.
- * 
- *    3. Create a filter for the scoreboard, where every brand that has a score
- *       of 0 are erased for abstraction purposes. Now the scoreboard is only
- *       populated with relevant brands where they all have at least a single
- *       point. These are the contenders for which brand will be outputted.
- *       Think of it as fetching candidates with potential while discarding
- *       those that don't.
- * 
- *    4. Merge certain brand combinations together. For example, Azure's cloud 
- *       is based on Hyper-V, but Hyper-V may have a higher score due to the 
- *       prevalence of it in a practical setting, which will put Azure to the 
- *       side. In reality, there should be an indication that Azure is involved
- *       since it's a better idea to let the user know that the brand is "Azure 
- *       Hyper-V" instead of just "Hyper-V". So what this step does is "merge" 
- *       the brands together to form a more accurate idea of the brand(s) involved.
- * 
- *    5. After all of this, the scoreboard is sorted in descending order, where
- *       the brands with the highest points are now selected as the official 
- *       output of the VM::brand() function.
- * 
- *    6. The result is then cached in the memo module, so if another function
- *       invokes VM::brand() again, the result is retrieved from the cache 
- *       without needing to run all of the previous steps again.
- *      
- * (NOTE: it's a bit more complicated than this, but that's the gist of how this function works)
- * 
- * Most of the functions provided usually depend on the 2 techniques covered. 
- * And they serve as a functionality base for other components of the lib.
- *      
- *  
- *  [1]: If the user has provided a setting argument called VM::HIGH_THRESHOLD, 
- *       the threshold becomes 300 instead of 150.
+ * Repository:    https://github.com/NotRequiem/VMAware
+ * Documentation: https://github.com/NotRequiem/VMAware/tree/main/docs
+ * Architecture:  https://github.com/NotRequiem/VMAware/blob/main/docs/ARCHITECTURE.md
  */
 
 #ifndef VMAWARE_HEADER
@@ -216,7 +38,7 @@
     #ifndef WIN32_LEAN_AND_MEAN
         #define WIN32_LEAN_AND_MEAN
     #endif
-    
+
     #define VMAWARE_WINDOWS 1
     #define VMAWARE_LINUX 0
     #define VMAWARE_APPLE 0
@@ -243,7 +65,7 @@
 #endif
 
 /* =========================================================================
- * COMPILER DETECTION 
+ * COMPILER DETECTION
  * ========================================================================= */
 #if defined(__clang__)
     #define VMAWARE_CLANG 1
@@ -287,11 +109,11 @@
 #else
     #error "Unsupported C++ standard (pre-C++98 or unknown)."
 #endif
-    
+
 #if (VMAWARE_CPP < 11)
     #error "VMAware only supports C++11 or above, set your compiler flag to '-std=c++20' for gcc/clang, or '/std:c++20' for MSVC"
 #endif
-      
+
 /* =========================================================================
  * ARCHITECTURE DETECTION
  * ========================================================================= */
@@ -318,7 +140,7 @@
 #else
     #define VMAWARE_X86 0
 #endif
-    
+
 #if (defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__) || defined(__arm64__)) && !VMAWARE_ARM64EC
     #define VMAWARE_ARM64 1
 #else
@@ -330,7 +152,7 @@
 #else
     #define VMAWARE_ARM32 0
 #endif
-    
+
 #if VMAWARE_ARM32 || VMAWARE_ARM64
     #define VMAWARE_ARM 1
 #else
@@ -338,7 +160,7 @@
 #endif
 
 /* =========================================================================
- * FEATURE TEST MACROS 
+ * FEATURE TEST MACROS
  * ========================================================================= */
 #if (VMAWARE_CPP >= 20) && defined(__has_include)
     #if __has_include(<source_location>)
@@ -531,7 +353,7 @@
     #else
         #define VMAWARE_SERIALIZE
     #endif
-#else 
+#else
     #define VMAWARE_VECTORCALL
     #define VMAWARE_TARGET_AVX
     #define VMAWARE_TARGET_AVX2
@@ -614,7 +436,7 @@
     #include <sys/ioctl.h>
     #include <sys/syscall.h>
     #include <sys/sysinfo.h>
-    #include <net/if.h> 
+    #include <net/if.h>
     #include <netinet/in.h>
     #include <unistd.h>
     #include <dirent.h>
@@ -622,11 +444,11 @@
     #include <cctype>
     #include <fcntl.h>
     #include <climits>
-    #include <csignal>      
-    #include <csetjmp>      
-    #include <pthread.h>     
-    #include <sched.h>      
-    #include <cerrno>   
+    #include <csignal>
+    #include <csetjmp>
+    #include <pthread.h>
+    #include <sched.h>
+    #include <cerrno>
 #elif (VMAWARE_APPLE)
     #if (VMAWARE_X86)
         #include <cpuid.h>
@@ -642,7 +464,7 @@
     #include <chrono>
 #endif
 
-#if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1 
+#if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1
     #define vma_debug(...) VM::util::debug_msg(__VA_ARGS__)
 #else
     #define vma_debug(...)
@@ -909,12 +731,11 @@ public:
         CPU_HEURISTIC,
         MSR,
         KVM_INTERCEPTION,
-        HYPERVISOR_HOOK,
         SINGLE_STEP,
         EIP_OVERFLOW,
         SVM_EXCEPTIONS,
         MEASURED_BOOT,
-        TPM, 
+        TPM,
         VCPU_SCHEDULING,
         EMULATION,
 
@@ -969,7 +790,6 @@ public:
         /* Cross-platform */
         HYPERVISOR_BIT,
         VMID,
-        THREAD_MISMATCH,
         TIMER,
         CPU_BRAND,
         HYPERVISOR_STR,
@@ -1095,10 +915,11 @@ public:
      * This is specifically meant for VM::detected_count() to
      * get the total number of techniques that detected a VM
      */
-    static u8 detected_count_num;
-    static u16 technique_count; /* get total number of techniques */
+    static std::vector<enum_flags>& get_disabled_techniques() noexcept {
+        static std::vector<enum_flags> d;
+        return d;
+    }
 
-    static std::vector<enum_flags> disabled_techniques;
     static constexpr std::array<enum_flags, 2> experimental_techniques{ { VCPU_SCHEDULING, EMULATION } };
 
     using brand_score_t = i32;
@@ -1148,6 +969,41 @@ public:
     static_assert(version != nullptr && version[0] != '\0', "version string cannot be empty");
     static_assert(version[0] >= '0' && version[0] <= '9', "version string must start with a digit (use '2.8.2', do not include 'v')");
     static_assert(version_major >= 10 || version[0] == static_cast<char>('0' + version_major), "Mismatch: the first character of version string does not match version_major");
+
+    struct vmaware_technique {
+        bool detected;
+        brand_enum brand;
+        brand_enum extra_brand;
+        u8 score;
+
+        constexpr vmaware_technique() noexcept
+            : detected(false), brand(brand_enum::NULL_BRAND), extra_brand(brand_enum::NULL_BRAND), score(0) {
+        }
+
+        /* Implicit conversion from bool: allows return true; and return false; */
+        constexpr vmaware_technique(const bool d) noexcept
+            : detected(d), brand(brand_enum::NULL_BRAND), extra_brand(brand_enum::NULL_BRAND), score(0) {
+        }
+
+        /* Direct constructors used by core::add */
+        constexpr vmaware_technique(const bool d, const brand_enum b, u8 s = 0) noexcept
+            : detected(d), brand(b), extra_brand(brand_enum::NULL_BRAND), score(s) {
+        }
+
+        constexpr vmaware_technique(const bool d, const brand_enum b, const brand_enum e, const u8 s) noexcept
+            : detected(d), brand(b), extra_brand(e), score(s) {
+        }
+
+        /* Implicit conversion to bool */
+        constexpr operator bool() const noexcept {
+            return detected;
+        }
+
+        /* Chain operator: handles stuff like vmid_template(1) || vmid_template(2) */
+        friend constexpr vmaware_technique operator||(const vmaware_technique& a, const vmaware_technique& b) noexcept {
+            return a.detected ? a : b;
+        }
+    };
 
     /* Specifically for util::hyper_x() and memo::hyperv */
     enum hyperx_state : u8 {
@@ -1204,7 +1060,7 @@ public:
                 d = static_cast<u32>(regs[3]);
             #else
                 __cpuid_count(leaf, subleaf, a, b, c, d);
-            #endif  
+            #endif
         #else
             VMAWARE_UNUSED(leaf);
             VMAWARE_UNUSED(subleaf);
@@ -1259,7 +1115,7 @@ public:
         }
 
         [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) {
-        #if (VMAWARE_APPLE) 
+        #if (VMAWARE_APPLE)
             return false;
         #endif
             bool cached = false;
@@ -1268,7 +1124,7 @@ public:
                 return cached;
             }
 
-            u32 eax = 0; 
+            u32 eax = 0;
             u32 unused = 0;
             bool supported = false;
 
@@ -1342,11 +1198,7 @@ public:
             std::memcpy(buffer, regs, sizeof(regs));
             buffer[48] = '\0';
 
-            /*
-             * Do NOT touch trailing spaces for the AMD_THREAD_MISMATCH technique
-             *
-             * left-trim only to handle stupid whitespaces before the brand string in ARM CPUs (Virtual CPUs)
-             */
+            /* left-trim only to handle stupid whitespaces before the brand string in ARM CPUs (Virtual CPUs) */
             const char* start_ptr = string::ltrim(buffer);
 
             memo::cpu_brand::store(start_ptr);
@@ -1583,1835 +1435,6 @@ public:
 
             return false;
         }
-
-        struct constexpr_hash {
-            /* 8 rounds of CRC32-C bit reflection recursively */
-            static constexpr u32 crc32_bits(const u32 crc, int bits) noexcept {
-                return (bits == 0) ? crc : crc32_bits((crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0), bits - 1);
-            }
-
-            /* Over string */
-            static constexpr u32 crc32_str(const char* s, const u32 crc) noexcept {
-                return (!s || *s == '\0') ? crc : crc32_str(s + 1, crc32_bits(crc ^ static_cast<u8>(*s), 8));
-            }
-
-            static constexpr u32 get(const char* s) noexcept {
-                return crc32_str(s, 0);
-            }
-        };
-
-        /* This forces the compiler to calculate the hash when initializing the array while staying C++11 compatible */
-        struct cpu_entry {
-            u32 hash;
-            u32 threads;
-            bool smt;
-
-            constexpr cpu_entry(const char* m, u32 t, bool s) noexcept
-                : hash(constexpr_hash::get(m)), threads(t), smt(s) {
-            }
-        };
-
-        enum class cpu_type : u8 {
-            UNKNOWN,
-            INTEL_I,
-            INTEL_XEON,
-            INTEL_ULTRA,
-            AMD
-        };
-
-        static void get_intel_core_db(const cpu_entry*& out_ptr, size_t& out_size) noexcept {
-            static constexpr cpu_entry db[] = {
-                /* i3 series */
-                { "i3-1000G1", 4, true },
-                { "i3-1000G4", 4, true },
-                { "i3-1000NG4", 4, true },
-                { "i3-1005G1", 4, true },
-                { "i3-10100", 8, true },
-                { "i3-10100E", 8, true },
-                { "i3-10100F", 8, true },
-                { "i3-10100T", 8, true },
-                { "i3-10100TE", 8, true },
-                { "i3-10100Y", 4, true },
-                { "i3-10105", 8, true },
-                { "i3-10105F", 8, true },
-                { "i3-10105T", 8, true },
-                { "i3-10110U", 4, true },
-                { "i3-10110Y", 4, true },
-                { "i3-10300", 8, true },
-                { "i3-10300T", 8, true },
-                { "i3-10305", 8, true },
-                { "i3-10305T", 8, true },
-                { "i3-10320", 8, true },
-                { "i3-10325", 8, true },
-                { "i3-11100B", 8, true },
-                { "i3-11100HE", 8, true },
-                { "i3-1110G4", 4, true },
-                { "i3-1115G4E", 4, true },
-                { "i3-1115GRE", 4, true },
-                { "i3-1120G4", 8, true },
-                { "i3-12100", 8, true },
-                { "i3-12100F", 8, true },
-                { "i3-12100T", 8, true },
-                { "i3-1210U", 8, true },
-                { "i3-1215U", 8, true },
-                { "i3-1215UE", 8, true },
-                { "i3-1215UL", 8, true },
-                { "i3-12300", 8, true },
-                { "i3-12300T", 8, true },
-                { "i3-13100", 8, true },
-                { "i3-13100F", 8, true },
-                { "i3-13100T", 8, true },
-                { "i3-1315U", 8, true },
-                { "i3-1315UE", 8, true },
-                { "i3-14100", 8, true },
-                { "i3-14100F", 8, true },
-                { "i3-14100T", 8, true },
-                { "i3-2100", 4, true },
-                { "i3-2100T", 4, true },
-                { "i3-2102", 4, true },
-                { "i3-2105", 4, true },
-                { "i3-2120", 4, true },
-                { "i3-2120T", 4, true },
-                { "i3-2125", 4, true },
-                { "i3-2130", 4, true },
-                { "i3-2308M", 4, true },
-                { "i3-2310E", 4, true },
-                { "i3-2310M", 4, true },
-                { "i3-2312M", 4, true },
-                { "i3-2328M", 4, true },
-                { "i3-2330E", 4, true },
-                { "i3-2330M", 4, true },
-                { "i3-2332M", 4, true },
-                { "i3-2340UE", 4, true },
-                { "i3-2348M", 4, true },
-                { "i3-2350LM", 4, true },
-                { "i3-2350M", 4, true },
-                { "i3-2355M", 4, true },
-                { "i3-2357M", 4, true },
-                { "i3-2365M", 4, true },
-                { "i3-2367M", 4, true },
-                { "i3-2370LM", 4, true },
-                { "i3-2370M", 4, true },
-                { "i3-2375M", 4, true },
-                { "i3-2377M", 4, true },
-                { "i3-2390M", 4, true },
-                { "i3-2393M", 4, true },
-                { "i3-2394M", 4, true },
-                { "i3-2395M", 4, true },
-                { "i3-2397M", 4, true },
-                { "i3-3110M", 4, true },
-                { "i3-3115C", 4, true },
-                { "i3-3120M", 4, true },
-                { "i3-3120ME", 4, true },
-                { "i3-3130M", 4, true },
-                { "i3-3210", 4, true },
-                { "i3-3217U", 4, true },
-                { "i3-3217UE", 4, true },
-                { "i3-3220", 4, true },
-                { "i3-3220T", 4, true },
-                { "i3-3225", 4, true },
-                { "i3-3227U", 4, true },
-                { "i3-3229Y", 4, true },
-                { "i3-3240", 4, true },
-                { "i3-3240T", 4, true },
-                { "i3-3245", 4, true },
-                { "i3-3250", 4, true },
-                { "i3-3250T", 4, true },
-                { "i3-330E", 4, true },
-                { "i3-330M", 4, true },
-                { "i3-330UM", 4, true },
-                { "i3-350M", 4, true },
-                { "i3-370M", 4, true },
-                { "i3-380M", 4, true },
-                { "i3-380UM", 4, true },
-                { "i3-390M", 4, true },
-                { "i3-4000M", 4, true },
-                { "i3-4005U", 4, true },
-                { "i3-4010M", 4, true },
-                { "i3-4010U", 4, true },
-                { "i3-4010Y", 4, true },
-                { "i3-4012Y", 4, true },
-                { "i3-4020Y", 4, true },
-                { "i3-4025U", 4, true },
-                { "i3-4030U", 4, true },
-                { "i3-4030Y", 4, true },
-                { "i3-4100E", 4, true },
-                { "i3-4100M", 4, true },
-                { "i3-4100U", 4, true },
-                { "i3-4102E", 4, true },
-                { "i3-4110E", 4, true },
-                { "i3-4110M", 4, true },
-                { "i3-4112E", 4, true },
-                { "i3-4120U", 4, true },
-                { "i3-4130", 4, true },
-                { "i3-4130T", 4, true },
-                { "i3-4150", 4, true },
-                { "i3-4150T", 4, true },
-                { "i3-4158U", 4, true },
-                { "i3-4160", 4, true },
-                { "i3-4160T", 4, true },
-                { "i3-4170", 4, true },
-                { "i3-4170T", 4, true },
-                { "i3-4330", 4, true },
-                { "i3-4330T", 4, true },
-                { "i3-4330TE", 4, true },
-                { "i3-4340", 4, true },
-                { "i3-4340TE", 4, true },
-                { "i3-4350", 4, true },
-                { "i3-4350T", 4, true },
-                { "i3-4360", 4, true },
-                { "i3-4360T", 4, true },
-                { "i3-4370", 4, true },
-                { "i3-4370T", 4, true },
-                { "i3-5005U", 4, true },
-                { "i3-5010U", 4, true },
-                { "i3-5015U", 4, true },
-                { "i3-5020U", 4, true },
-                { "i3-5157U", 4, true },
-                { "i3-530", 4, true },
-                { "i3-540", 4, true },
-                { "i3-550", 4, true },
-                { "i3-560", 4, true },
-                { "i3-6006U", 4, true },
-                { "i3-6098P", 4, true },
-                { "i3-6100", 4, true },
-                { "i3-6100E", 4, true },
-                { "i3-6100H", 4, true },
-                { "i3-6100T", 4, true },
-                { "i3-6100TE", 4, true },
-                { "i3-6100U", 4, true },
-                { "i3-6102E", 4, true },
-                { "i3-6120T", 4, true },
-                { "i3-6157U", 4, true },
-                { "i3-6167U", 4, true },
-                { "i3-6300", 4, true },
-                { "i3-6300T", 4, true },
-                { "i3-6320", 4, true },
-                { "i3-6320T", 4, true },
-                { "i3-7007U", 4, true },
-                { "i3-7020U", 4, true },
-                { "i3-7100", 4, true },
-                { "i3-7100E", 4, true },
-                { "i3-7100H", 4, true },
-                { "i3-7100T", 4, true },
-                { "i3-7100U", 4, true },
-                { "i3-7101E", 4, true },
-                { "i3-7101TE", 4, true },
-                { "i3-7102E", 4, true },
-                { "i3-7110U", 4, true },
-                { "i3-7120", 4, true },
-                { "i3-7120T", 4, true },
-                { "i3-7130U", 4, true },
-                { "i3-7167U", 4, true },
-                { "i3-7300", 4, true },
-                { "i3-7300T", 4, true },
-                { "i3-7310T", 4, true },
-                { "i3-7310U", 4, true },
-                { "i3-7320", 4, true },
-                { "i3-7320T", 4, true },
-                { "i3-7340", 4, true },
-                { "i3-7350K", 4, true },
-                { "i3-8000", 4, false },
-                { "i3-8000T", 4, false },
-                { "i3-8020", 4, false },
-                { "i3-8020T", 4, false },
-                { "i3-8100", 4, false },
-                { "i3-8100B", 4, false },
-                { "i3-8100F", 4, false },
-                { "i3-8100H", 4, false },
-                { "i3-8100T", 4, false },
-                { "i3-8109U", 4, true },
-                { "i3-8120", 4, false },
-                { "i3-8120T", 4, false },
-                { "i3-8121U", 4, true },
-                { "i3-8130U", 4, true },
-                { "i3-8140U", 4, true },
-                { "i3-8145U", 4, true },
-                { "i3-8145UE", 4, true },
-                { "i3-8300", 4, false },
-                { "i3-8300T", 4, false },
-                { "i3-8320", 4, false },
-                { "i3-8320T", 4, false },
-                { "i3-8350K", 4, false },
-                { "i3-9100", 4, false },
-                { "i3-9100E", 4, false },
-                { "i3-9100F", 4, false },
-                { "i3-9100HL", 4, false },
-                { "i3-9100T", 4, false },
-                { "i3-9100TE", 4, false },
-                { "i3-9300", 4, false },
-                { "i3-9300T", 4, false },
-                { "i3-9320", 4, false },
-                { "i3-9350K", 4, false },
-                { "i3-9350KF", 4, false },
-                { "i3-N300", 8, false },
-                { "i3-N305", 8, false },
-                { "i3-14100TE", 8, true },
-
-                /* i5 series */
-                { "i5-10200H", 8, true },
-                { "i5-10210U", 8, true },
-                { "i5-10210Y", 8, true },
-                { "i5-10300H", 8, true },
-                { "i5-1030G4", 8, true },
-                { "i5-1030G7", 8, true },
-                { "i5-1030NG7", 8, true },
-                { "i5-10310U", 8, true },
-                { "i5-10310Y", 8, true },
-                { "i5-1035G1", 8, true },
-                { "i5-1035G4", 8, true },
-                { "i5-1035G7", 8, true },
-                { "i5-1038NG7", 8, true },
-                { "i5-10400", 12, true },
-                { "i5-10400F", 12, true },
-                { "i5-10400H", 8, true },
-                { "i5-10400T", 12, true },
-                { "i5-10500", 12, true },
-                { "i5-10500E", 12, true },
-                { "i5-10500H", 12, true },
-                { "i5-10500T", 12, true },
-                { "i5-10500TE", 12, true },
-                { "i5-10505", 12, true },
-                { "i5-10600", 12, true },
-                { "i5-10600K", 12, true },
-                { "i5-10600KF", 12, true },
-                { "i5-10600T", 12, true },
-                { "i5-1115G4", 4, true },
-                { "i5-1125G4", 8, true },
-                { "i5-11260H", 12, true },
-                { "i5-11300H", 8, true },
-                { "i5-1130G7", 8, true },
-                { "i5-11320H", 8, true },
-                { "i5-1135G7", 8, true },
-                { "i5-11400", 12, true },
-                { "i5-11400F", 12, true },
-                { "i5-11400H", 12, true },
-                { "i5-11400T", 12, true },
-                { "i5-1140G7", 8, true },
-                { "i5-1145G7", 8, true },
-                { "i5-1145G7E", 8, true },
-                { "i5-1145GRE", 8, true },
-                { "i5-11500", 12, true },
-                { "i5-11500B", 12, true },
-                { "i5-11500H", 12, true },
-                { "i5-11500HE", 12, true },
-                { "i5-11500T", 12, true },
-                { "i5-1155G7", 8, true },
-                { "i5-11600", 12, true },
-                { "i5-11600K", 12, true },
-                { "i5-11600KF", 12, true },
-                { "i5-11600T", 12, true },
-                { "i5-1230U", 12, true },
-                { "i5-1235U", 12, true },
-                { "i5-12400", 12, true },
-                { "i5-12400F", 12, true },
-                { "i5-12400T", 12, true },
-                { "i5-1240P", 16, true },
-                { "i5-1240U", 12, true },
-                { "i5-1245U", 12, true },
-                { "i5-12490F", 12, true },
-                { "i5-12500", 12, true },
-                { "i5-12500H", 16, true },
-                { "i5-12500HL", 16, true },
-                { "i5-12500T", 12, true },
-                { "i5-1250P", 16, true },
-                { "i5-1250PE", 16, true },
-                { "i5-12600", 12, true },
-                { "i5-12600H", 16, true },
-                { "i5-12600HE", 16, true },
-                { "i5-12600HL", 16, true },
-                { "i5-12600HX", 16, true },
-                { "i5-12600K", 16, true },
-                { "i5-12600KF", 16, true },
-                { "i5-12600T", 12, true },
-                { "i5-13400", 16, true },
-                { "i5-13400F", 16, true },
-                { "i5-13400T", 16, true },
-                { "i5-1340P", 16, true },
-                { "i5-1340PE", 16, true },
-                { "i5-13490F", 16, true },
-                { "i5-13500", 20, true },
-                { "i5-13500H", 16, true },
-                { "i5-13500T", 20, true },
-                { "i5-13505H", 16, true },
-                { "i5-1350P", 16, true },
-                { "i5-1350PE", 16, true },
-                { "i5-13600", 20, true },
-                { "i5-13600H", 16, true },
-                { "i5-13600HE", 16, true },
-                { "i5-13600K", 20, true },
-                { "i5-13600KF", 20, true },
-                { "i5-13600T", 20, true },
-                { "i5-2300", 4, false },
-                { "i5-2310", 4, false },
-                { "i5-2320", 4, false },
-                { "i5-2380P", 4, false },
-                { "i5-2390T", 4, true },
-                { "i5-2400", 4, false },
-                { "i5-2400S", 4, false },
-                { "i5-2405S", 4, false },
-                { "i5-2410M", 4, true },
-                { "i5-2415M", 4, true },
-                { "i5-2430M", 4, true },
-                { "i5-2435M", 4, true },
-                { "i5-2450M", 4, true },
-                { "i5-2450P", 4, false },
-                { "i5-2467M", 4, true },
-                { "i5-2475M", 4, true },
-                { "i5-2477M", 4, true },
-                { "i5-2487M", 4, true },
-                { "i5-2490M", 4, true },
-                { "i5-2497M", 4, true },
-                { "i5-2500", 4, false },
-                { "i5-2500K", 4, false },
-                { "i5-2500S", 4, false },
-                { "i5-2500T", 4, false },
-                { "i5-2510E", 4, true },
-                { "i5-2515E", 4, true },
-                { "i5-2520M", 4, true },
-                { "i5-2537M", 4, true },
-                { "i5-2540LM", 4, true },
-                { "i5-2540M", 4, true },
-                { "i5-2547M", 4, true },
-                { "i5-2550K", 4, false },
-                { "i5-2557M", 4, true },
-                { "i5-2560LM", 4, true },
-                { "i5-2560M", 4, true },
-                { "i5-2580M", 4, true },
-                { "i5-3210M", 4, true },
-                { "i5-3230M", 4, true },
-                { "i5-3317U", 4, true },
-                { "i5-3320M", 4, true },
-                { "i5-3330", 4, false },
-                { "i5-3330S", 4, false },
-                { "i5-3335S", 4, false },
-                { "i5-3337U", 4, true },
-                { "i5-3339Y", 4, true },
-                { "i5-3340", 4, false },
-                { "i5-3340M", 4, true },
-                { "i5-3340S", 4, false },
-                { "i5-3350P", 4, false },
-                { "i5-3360M", 4, true },
-                { "i5-3380M", 4, true },
-                { "i5-3427U", 4, true },
-                { "i5-3437U", 4, true },
-                { "i5-3439Y", 4, true },
-                { "i5-3450", 4, false },
-                { "i5-3450S", 4, false },
-                { "i5-3470", 4, false },
-                { "i5-3470S", 4, false },
-                { "i5-3470T", 4, true },
-                { "i5-3475S", 4, false },
-                { "i5-3550", 4, false },
-                { "i5-3550S", 4, false },
-                { "i5-3570", 4, false },
-                { "i5-3570K", 4, false },
-                { "i5-3570S", 4, false },
-                { "i5-3570T", 4, false },
-                { "i5-3610ME", 4, true },
-                { "i5-4200H", 4, true },
-                { "i5-4200M", 4, true },
-                { "i5-4200U", 4, true },
-                { "i5-4200Y", 4, true },
-                { "i5-4202Y", 4, true },
-                { "i5-4210H", 4, true },
-                { "i5-4210M", 4, true },
-                { "i5-4210U", 4, true },
-                { "i5-4210Y", 4, true },
-                { "i5-4220Y", 4, true },
-                { "i5-4250U", 4, true },
-                { "i5-4258U", 4, true },
-                { "i5-4260U", 4, true },
-                { "i5-4278U", 4, true },
-                { "i5-4288U", 4, true },
-                { "i5-4300M", 4, true },
-                { "i5-4300U", 4, true },
-                { "i5-4300Y", 4, true },
-                { "i5-4302Y", 4, true },
-                { "i5-4308U", 4, true },
-                { "i5-430M", 4, true },
-                { "i5-430UM", 4, true },
-                { "i5-4310M", 4, true },
-                { "i5-4310U", 4, true },
-                { "i5-4330M", 4, true },
-                { "i5-4340M", 4, true },
-                { "i5-4350U", 4, true },
-                { "i5-4360U", 4, true },
-                { "i5-4400E", 4, true },
-                { "i5-4402E", 4, true },
-                { "i5-4402EC", 4, true },
-                { "i5-4410E", 4, true },
-                { "i5-4422E", 4, true },
-                { "i5-4430", 4, false },
-                { "i5-4430S", 4, false },
-                { "i5-4440", 4, false },
-                { "i5-4440S", 4, false },
-                { "i5-4460", 4, false },
-                { "i5-4460S", 4, false },
-                { "i5-4460T", 4, false },
-                { "i5-4470", 4, false },
-                { "i5-450M", 4, true },
-                { "i5-4570", 4, false },
-                { "i5-4570R", 4, false },
-                { "i5-4570S", 4, false },
-                { "i5-4570T", 4, true },
-                { "i5-4570TE", 4, true },
-                { "i5-4590", 4, false },
-                { "i5-4590S", 4, false },
-                { "i5-4590T", 4, false },
-                { "i5-460M", 4, true },
-                { "i5-4670", 4, false },
-                { "i5-4670K", 4, false },
-                { "i5-4670R", 4, false },
-                { "i5-4670S", 4, false },
-                { "i5-4670T", 4, false },
-                { "i5-4690", 4, false },
-                { "i5-4690K", 4, false },
-                { "i5-4690S", 4, false },
-                { "i5-4690T", 4, false },
-                { "i5-470UM", 4, true },
-                { "i5-480M", 4, true },
-                { "i5-5200U", 4, true },
-                { "i5-520E", 4, true },
-                { "i5-520M", 4, true },
-                { "i5-520UM", 4, true },
-                { "i5-5250U", 4, true },
-                { "i5-5257U", 4, true },
-                { "i5-5287U", 4, true },
-                { "i5-5300U", 4, true },
-                { "i5-5350H", 4, true },
-                { "i5-5350U", 4, true },
-                { "i5-540M", 4, true },
-                { "i5-540UM", 4, true },
-                { "i5-5575R", 4, false },
-                { "i5-560M", 4, true },
-                { "i5-560UM", 4, true },
-                { "i5-5675C", 4, false },
-                { "i5-5675R", 4, false },
-                { "i5-580M", 4, true },
-                { "i5-6198DU", 4, true },
-                { "i5-6200U", 4, true },
-                { "i5-6260U", 4, true },
-                { "i5-6267U", 4, true },
-                { "i5-6287U", 4, true },
-                { "i5-6300HQ", 4, false },
-                { "i5-6300U", 4, true },
-                { "i5-6350HQ", 4, false },
-                { "i5-6360U", 4, true },
-                { "i5-6400", 4, false },
-                { "i5-6400T", 4, false },
-                { "i5-6402P", 4, false },
-                { "i5-6440EQ", 4, false },
-                { "i5-6440HQ", 4, false },
-                { "i5-6442EQ", 4, false },
-                { "i5-650", 4, true },
-                { "i5-6500", 4, false },
-                { "i5-6500T", 4, false },
-                { "i5-6500TE", 4, false },
-                { "i5-655K", 4, true },
-                { "i5-6585R", 4, false },
-                { "i5-660", 4, true },
-                { "i5-6600", 4, false },
-                { "i5-6600K", 4, false },
-                { "i5-6600T", 4, false },
-                { "i5-661", 4, true },
-                { "i5-6685R", 4, false },
-                { "i5-670", 4, true },
-                { "i5-680", 4, true },
-                { "i5-7200U", 4, true },
-                { "i5-7210U", 4, true },
-                { "i5-7260U", 4, true },
-                { "i5-7267U", 4, true },
-                { "i5-7287U", 4, true },
-                { "i5-7300HQ", 4, false },
-                { "i5-7300U", 4, true },
-                { "i5-7360U", 4, true },
-                { "i5-7400", 4, false },
-                { "i5-7400T", 4, false },
-                { "i5-7440EQ", 4, false },
-                { "i5-7440HQ", 4, false },
-                { "i5-7442EQ", 4, false },
-                { "i5-750", 4, false },
-                { "i5-7500", 4, false },
-                { "i5-7500T", 4, false },
-                { "i5-750S", 4, false },
-                { "i5-760", 4, false },
-                { "i5-7600", 4, false },
-                { "i5-7600K", 4, false },
-                { "i5-7600T", 4, false },
-                { "i5-7640X", 4, false },
-                { "i5-7Y54", 4, true },
-                { "i5-7Y57", 4, true },
-                { "i5-8200Y", 4, true },
-                { "i5-8210Y", 4, true },
-                { "i5-8250U", 8, true },
-                { "i5-8257U", 8, true },
-                { "i5-8259U", 8, true },
-                { "i5-8260U", 8, true },
-                { "i5-8265U", 8, true },
-                { "i5-8269U", 8, true },
-                { "i5-8279U", 8, true },
-                { "i5-8300H", 8, true },
-                { "i5-8305G", 8, true },
-                { "i5-8310Y", 4, true },
-                { "i5-8350U", 8, true },
-                { "i5-8365U", 8, true },
-                { "i5-8365UE", 8, true },
-                { "i5-8400", 6, false },
-                { "i5-8400B", 6, false },
-                { "i5-8400H", 8, true },
-                { "i5-8400T", 6, false },
-                { "i5-8420", 6, false },
-                { "i5-8420T", 6, false },
-                { "i5-8500", 6, false },
-                { "i5-8500B", 6, false },
-                { "i5-8500T", 6, false },
-                { "i5-8550", 6, false },
-                { "i5-8600", 6, false },
-                { "i5-8600K", 6, false },
-                { "i5-8600T", 6, false },
-                { "i5-8650", 6, false },
-                { "i5-9300H", 8, true },
-                { "i5-9300HF", 8, true },
-                { "i5-9400", 6, false },
-                { "i5-9400F", 6, false },
-                { "i5-9400H", 8, true },
-                { "i5-9400T", 6, false },
-                { "i5-9500", 6, false },
-                { "i5-9500E", 6, false },
-                { "i5-9500F", 6, false },
-                { "i5-9500T", 6, false },
-                { "i5-9500TE", 6, false },
-                { "i5-9600", 6, false },
-                { "i5-9600K", 6, false },
-                { "i5-9600KF", 6, false },
-                { "i5-9600T", 6, false },
-                { "i5-12450H", 12, true },
-                { "i5-12450HX", 12, true },
-                { "i5-12650H", 16, true },
-                { "i5-13420H", 12, true },
-                { "i5-13450HX", 16, true },
-                { "i5-13500HX", 20, true },
-                { "i5-13600HX", 20, true },
-                { "i5-14400", 16, true },
-                { "i5-14400F", 16, true },
-                { "i5-14400T", 16, true },
-                { "i5-14450HX", 16, true },
-                { "i5-14490F", 16, true },
-                { "i5-14500", 20, true },
-                { "i5-14500GX", 20, true },
-                { "i5-14500HX", 20, true },
-                { "i5-14500T", 20, true },
-                { "i5-14500TE", 20, true },
-                { "i5-14600", 20, true },
-                { "i5-14600K", 20, true },
-                { "i5-14600KF", 20, true },
-                { "i5-14600T", 20, true },
-                { "i5-14501E", 12, true },
-                { "i5-14501TE", 12, true },
-
-                /* i7 series */
-                { "i7-10510U", 8, true },
-                { "i7-10510Y", 8, true },
-                { "i7-1060G7", 8, true },
-                { "i7-10610U", 8, true },
-                { "i7-1065G7", 8, true },
-                { "i7-1068G7", 8, true },
-                { "i7-1068NG7", 8, true },
-                { "i7-10700", 16, true },
-                { "i7-10700E", 16, true },
-                { "i7-10700F", 16, true },
-                { "i7-10700K", 16, true },
-                { "i7-10700KF", 16, true },
-                { "i7-10700T", 16, true },
-                { "i7-10700TE", 16, true },
-                { "i7-10710U", 12, true },
-                { "i7-10750H", 12, true },
-                { "i7-10810U", 12, true },
-                { "i7-10850H", 12, true },
-                { "i7-10870H", 16, true },
-                { "i7-10875H", 16, true },
-                { "i7-11370H", 8, true },
-                { "i7-11375H", 8, true },
-                { "i7-11390H", 8, true },
-                { "i7-11600H", 12, true },
-                { "i7-1160G7", 8, true },
-                { "i7-1165G7", 8, true },
-                { "i7-11700", 16, true },
-                { "i7-11700B", 16, true },
-                { "i7-11700F", 16, true },
-                { "i7-11700K", 16, true },
-                { "i7-11700KF", 16, true },
-                { "i7-11700T", 16, true },
-                { "i7-11800H", 16, true },
-                { "i7-1180G7", 8, true },
-                { "i7-11850H", 16, true },
-                { "i7-11850HE", 16, true },
-                { "i7-1185G7", 8, true },
-                { "i7-1185G7E", 8, true },
-                { "i7-1185GRE", 8, true },
-                { "i7-1195G7", 8, true },
-                { "i7-1250U", 12, true },
-                { "i7-1255U", 12, true },
-                { "i7-1260P", 16, true },
-                { "i7-1260U", 12, true },
-                { "i7-1265U", 12, true },
-                { "i7-12700", 20, true },
-                { "i7-12700F", 20, true },
-                { "i7-12700K", 20, true },
-                { "i7-12700KF", 20, true },
-                { "i7-12700T", 20, true },
-                { "i7-12700H", 20, true },
-                { "i7-1270P", 16, true },
-                { "i7-1270PE", 16, true },
-                { "i7-1360P", 16, true },
-                { "i7-13700", 24, true },
-                { "i7-13700F", 24, true },
-                { "i7-13700K", 24, true },
-                { "i7-13700KF", 24, true },
-                { "i7-13700T", 24, true },
-                { "i7-13790F", 24, true },
-                { "i7-2535QM", 8, true },
-                { "i7-2570QM", 8, true },
-                { "i7-2600", 8, true },
-                { "i7-2600K", 8, true },
-                { "i7-2600S", 8, true },
-                { "i7-2610UE", 4, true },
-                { "i7-2617M", 4, true },
-                { "i7-2620M", 4, true },
-                { "i7-2627M", 4, true },
-                { "i7-2629M", 4, true },
-                { "i7-2630QM", 8, true },
-                { "i7-2635QM", 8, true },
-                { "i7-2637M", 4, true },
-                { "i7-2640M", 4, true },
-                { "i7-2649M", 4, true },
-                { "i7-2655LE", 4, true },
-                { "i7-2655QM", 8, true },
-                { "i7-2657M", 4, true },
-                { "i7-2660M", 4, true },
-                { "i7-2667M", 4, true },
-                { "i7-2669M", 4, true },
-                { "i7-2670QM", 8, true },
-                { "i7-2675QM", 8, true },
-                { "i7-2677M", 4, true },
-                { "i7-2685QM", 8, true },
-                { "i7-2689M", 4, true },
-                { "i7-2700K", 8, true },
-                { "i7-2710QE", 8, true },
-                { "i7-2715QE", 8, true },
-                { "i7-2720QM", 8, true },
-                { "i7-2740QM", 8, true },
-                { "i7-2760QM", 8, true },
-                { "i7-2820QM", 8, true },
-                { "i7-2840QM", 8, true },
-                { "i7-2860QM", 8, true },
-                { "i7-2920XM", 8, true },
-                { "i7-2960XM", 8, true },
-                { "i7-3517U", 4, true },
-                { "i7-3517UE", 4, true },
-                { "i7-3520M", 4, true },
-                { "i7-3537U", 4, true },
-                { "i7-3540M", 4, true },
-                { "i7-3555LE", 4, true },
-                { "i7-3610QE", 8, true },
-                { "i7-3610QM", 8, true },
-                { "i7-3612QE", 8, true },
-                { "i7-3612QM", 8, true },
-                { "i7-3615QE", 8, true },
-                { "i7-3615QM", 8, true },
-                { "i7-3630QM", 8, true },
-                { "i7-3632QM", 8, true },
-                { "i7-3635QM", 8, true },
-                { "i7-3667U", 4, true },
-                { "i7-3687U", 4, true },
-                { "i7-3689Y", 4, true },
-                { "i7-3720QM", 8, true },
-                { "i7-3740QM", 8, true },
-                { "i7-3770", 8, true },
-                { "i7-3770K", 8, true },
-                { "i7-3770S", 8, true },
-                { "i7-3770T", 8, true },
-                { "i7-3820", 8, true },
-                { "i7-3820QM", 8, true },
-                { "i7-3840QM", 8, true },
-                { "i7-3920XM", 8, true },
-                { "i7-3930K", 12, true },
-                { "i7-3940XM", 8, true },
-                { "i7-3960X", 12, true },
-                { "i7-3970X", 12, true },
-                { "i7-4500U", 4, true },
-                { "i7-4510U", 4, true },
-                { "i7-4550U", 4, true },
-                { "i7-4558U", 4, true },
-                { "i7-4578U", 4, true },
-                { "i7-4600M", 4, true },
-                { "i7-4600U", 4, true },
-                { "i7-4610M", 4, true },
-                { "i7-4610Y", 4, true },
-                { "i7-4650U", 4, true },
-                { "i7-4700EC", 8, true },
-                { "i7-4700EQ", 8, true },
-                { "i7-4700HQ", 8, true },
-                { "i7-4702EC", 8, true },
-                { "i7-4700MQ", 8, true },
-                { "i7-4701EQ", 8, true },
-                { "i7-4702HQ", 8, true },
-                { "i7-4702MQ", 8, true },
-                { "i7-4710HQ", 8, true },
-                { "i7-4710MQ", 8, true },
-                { "i7-4712HQ", 8, true },
-                { "i7-4712MQ", 8, true },
-                { "i7-4720HQ", 8, true },
-                { "i7-4722HQ", 8, true },
-                { "i7-4750HQ", 8, true },
-                { "i7-4760HQ", 8, true },
-                { "i7-4765T", 8, true },
-                { "i7-4770", 8, true },
-                { "i7-4770HQ", 8, true },
-                { "i7-4770K", 8, true },
-                { "i7-4770R", 8, true },
-                { "i7-4770S", 8, true },
-                { "i7-4770T", 8, true },
-                { "i7-4770TE", 8, true },
-                { "i7-4771", 8, true },
-                { "i7-4785T", 8, true },
-                { "i7-4790", 8, true },
-                { "i7-4790K", 8, true },
-                { "i7-4790S", 8, true },
-                { "i7-4790T", 8, true },
-                { "i7-4800MQ", 8, true },
-                { "i7-4810MQ", 8, true },
-                { "i7-4820K", 8, true },
-                { "i7-4850EQ", 8, true },
-                { "i7-4850HQ", 8, true },
-                { "i7-4860EQ", 8, true },
-                { "i7-4860HQ", 8, true },
-                { "i7-4870HQ", 8, true },
-                { "i7-4900MQ", 8, true },
-                { "i7-4910MQ", 8, true },
-                { "i7-4930K", 12, true },
-                { "i7-4930MX", 8, true },
-                { "i7-4940MX", 8, true },
-                { "i7-4950HQ", 8, true },
-                { "i7-4960HQ", 8, true },
-                { "i7-4960X", 12, true },
-                { "i7-4980HQ", 8, true },
-                { "i7-5500U", 4, true },
-                { "i7-5550U", 4, true },
-                { "i7-5557U", 4, true },
-                { "i7-5600U", 4, true },
-                { "i7-5650U", 4, true },
-                { "i7-5700EQ", 8, true },
-                { "i7-5700HQ", 8, true },
-                { "i7-5750HQ", 8, true },
-                { "i7-5775C", 8, true },
-                { "i7-5775R", 8, true },
-                { "i7-5820K", 12, true },
-                { "i7-5850EQ", 8, true },
-                { "i7-5850HQ", 8, true },
-                { "i7-5930K", 12, true },
-                { "i7-5950HQ", 8, true },
-                { "i7-5960X", 16, true },
-                { "i7-610E", 4, true },
-                { "i7-620LE", 4, true },
-                { "i7-620LM", 4, true },
-                { "i7-620M", 4, true },
-                { "i7-620UE", 4, true },
-                { "i7-620UM", 4, true },
-                { "i7-640LM", 4, true },
-                { "i7-640M", 4, true },
-                { "i7-640UM", 4, true },
-                { "i7-6498DU", 4, true },
-                { "i7-6500U", 4, true },
-                { "i7-6560U", 4, true },
-                { "i7-6567U", 4, true },
-                { "i7-6600U", 4, true },
-                { "i7-660LM", 4, true },
-                { "i7-660UE", 4, true },
-                { "i7-660UM", 4, true },
-                { "i7-6650U", 4, true },
-                { "i7-6660U", 4, true },
-                { "i7-6700", 8, true },
-                { "i7-6700HQ", 8, true },
-                { "i7-6700K", 8, true },
-                { "i7-6700T", 8, true },
-                { "i7-6700TE", 8, true },
-                { "i7-6770HQ", 8, true },
-                { "i7-6785R", 8, true },
-                { "i7-6800K", 12, true },
-                { "i7-680UM", 4, true },
-                { "i7-6820EQ", 8, true },
-                { "i7-6820HK", 8, true },
-                { "i7-6820HQ", 8, true },
-                { "i7-6822EQ", 8, true },
-                { "i7-6850K", 12, true },
-                { "i7-6870HQ", 8, true },
-                { "i7-6900K", 16, true },
-                { "i7-6920HQ", 8, true },
-                { "i7-6950X", 20, true },
-                { "i7-6970HQ", 8, true },
-                { "i7-720QM", 8, true },
-                { "i7-740QM", 8, true },
-                { "i7-7500U", 4, true },
-                { "i7-7510U", 4, true },
-                { "i7-7560U", 4, true },
-                { "i7-7567U", 4, true },
-                { "i7-7600U", 4, true },
-                { "i7-7660U", 4, true },
-                { "i7-7700", 8, true },
-                { "i7-7700HQ", 8, true },
-                { "i7-7700K", 8, true },
-                { "i7-7700T", 8, true },
-                { "i7-7740X", 8, true },
-                { "i7-7800X", 12, true },
-                { "i7-7820EQ", 8, true },
-                { "i7-7820HK", 8, true },
-                { "i7-7820HQ", 8, true },
-                { "i7-7820X", 16, true },
-                { "i7-7920HQ", 8, true },
-                { "i7-7Y75", 4, true },
-                { "i7-8086K", 12, true },
-                { "i7-820QM", 8, true },
-                { "i7-840QM", 8, true },
-                { "i7-8500Y", 4, true },
-                { "i7-8550U", 8, true },
-                { "i7-8557U", 8, true },
-                { "i7-8559U", 8, true },
-                { "i7-8565U", 8, true },
-                { "i7-8569U", 8, true },
-                { "i7-860", 8, true },
-                { "i7-860S", 8, true },
-                { "i7-8650U", 8, true },
-                { "i7-8665U", 8, true },
-                { "i7-8665UE", 8, true },
-                { "i7-8670", 12, true },
-                { "i7-8670T", 12, true },
-                { "i7-870", 8, true },
-                { "i7-8700", 12, true },
-                { "i7-8700B", 12, true },
-                { "i7-8700K", 12, true },
-                { "i7-8700T", 12, true },
-                { "i7-8705G", 8, true },
-                { "i7-8706G", 8, true },
-                { "i7-8709G", 8, true },
-                { "i7-870S", 8, true },
-                { "i7-8750H", 12, true },
-                { "i7-875K", 8, true },
-                { "i7-880", 8, true },
-                { "i7-8809G", 8, true },
-                { "i7-8850H", 12, true },
-                { "i7-920", 8, true },
-                { "i7-920XM", 8, true },
-                { "i7-930", 8, true },
-                { "i7-940", 8, true },
-                { "i7-940XM", 8, true },
-                { "i7-950", 8, true },
-                { "i7-960", 8, true },
-                { "i7-965", 8, true },
-                { "i7-970", 12, true },
-                { "i7-9700", 8, false },
-                { "i7-9700E", 8, false },
-                { "i7-9700F", 8, false },
-                { "i7-9700K", 8, false },
-                { "i7-9700KF", 8, false },
-                { "i7-9700T", 8, false },
-                { "i7-9700TE", 8, false },
-                { "i7-975", 8, true },
-                { "i7-9750H", 12, true },
-                { "i7-9750HF", 12, true },
-                { "i7-980", 12, true },
-                { "i7-9800X", 16, true },
-                { "i7-980X", 12, true },
-                { "i7-9850H", 12, true },
-                { "i7-9850HE", 12, true },
-                { "i7-9850HL", 12, true },
-                { "i7-990X", 12, true },
-                { "i7-12650H", 16, true },
-                { "i7-12800H", 20, true },
-                { "i7-12800HE", 20, true },
-                { "i7-12800HX", 24, true },
-                { "i7-12850HX", 24, true },
-                { "i7-13620H", 16, true },
-                { "i7-13650HX", 20, true },
-                { "i7-13700H", 20, true },
-                { "i7-13700HX", 24, true },
-                { "i7-13705H", 20, true },
-                { "i7-13800H", 20, true },
-                { "i7-13850HX", 28, true },
-                { "i7-14650HX", 24, true },
-                { "i7-14700", 28, true },
-                { "i7-14700F", 28, true },
-                { "i7-14700H", 28, true },
-                { "i7-14700HX", 28, true },
-                { "i7-14700K", 28, true },
-                { "i7-14700KF", 28, true },
-                { "i7-14700T", 28, true },
-                { "i7-14790F", 24, true },
-                { "i7-14950HX", 24, true },
-                { "i7-14700TE", 28, true },
-                { "i7-14701E", 16, true },
-                { "i7-14701TE", 16, true },
-
-                /* i9 series */
-                { "i9-7900X", 20, true },
-                { "i9-7920X", 24, true },
-                { "i9-7940X", 28, true },
-                { "i9-7960X", 32, true },
-                { "i9-7980XE", 36, true },
-                { "i9-8950HK", 12, true },
-                { "i9-9820X", 20, true },
-                { "i9-9880H", 16, true },
-                { "i9-9900", 16, true },
-                { "i9-9900K", 16, true },
-                { "i9-9900KF", 16, true },
-                { "i9-9900KS", 16, true },
-                { "i9-9900T", 16, true },
-                { "i9-9900X", 20, true },
-                { "i9-9920X", 24, true },
-                { "i9-9940X", 28, true },
-                { "i9-9960X", 32, true },
-                { "i9-9980HK", 16, true },
-                { "i9-9980XE", 36, true },
-                { "i9-9990XE", 28, true },
-                { "i9-10850K", 20, true },
-                { "i9-10885H", 16, true },
-                { "i9-10900", 20, true },
-                { "i9-10900E", 20, true },
-                { "i9-10900F", 20, true },
-                { "i9-10900K", 20, true },
-                { "i9-10900KF", 20, true },
-                { "i9-10900T", 20, true },
-                { "i9-10900TE", 20, true },
-                { "i9-10900X", 20, true },
-                { "i9-10910", 20, true },
-                { "i9-10920X", 24, true },
-                { "i9-10940X", 28, true },
-                { "i9-10980HK", 16, true },
-                { "i9-10980XE", 36, true },
-                { "i9-11900", 16, true },
-                { "i9-11900F", 16, true },
-                { "i9-11900H", 16, true },
-                { "i9-11900K", 16, true },
-                { "i9-11900KB", 16, true },
-                { "i9-11900KF", 16, true },
-                { "i9-11900T", 16, true },
-                { "i9-11950H", 16, true },
-                { "i9-11980HK", 16, true },
-                { "i9-12900", 24, true },
-                { "i9-12900E", 24, true },
-                { "i9-12900F", 24, true },
-                { "i9-12900H", 20, true },
-                { "i9-12900HK", 20, true },
-                { "i9-12900HX", 24, true },
-                { "i9-12900K", 24, true },
-                { "i9-12900KF", 24, true },
-                { "i9-12900KS", 24, true },
-                { "i9-12900T", 24, true },
-                { "i9-12900TE", 24, true },
-                { "i9-12950HX", 24, true },
-                { "i9-13900", 32, true },
-                { "i9-13900E", 32, true },
-                { "i9-13900F", 32, true },
-                { "i9-13900H", 20, true },
-                { "i9-13900HK", 20, true },
-                { "i9-13900HX", 32, true },
-                { "i9-13900K", 32, true },
-                { "i9-13900KF", 32, true },
-                { "i9-13900KS", 32, true },
-                { "i9-13900T", 32, true },
-                { "i9-13900TE", 32, true },
-                { "i9-13905H", 20, true },
-                { "i9-13950HX", 32, true },
-                { "i9-13980HX", 32, true },
-                { "i9-14900", 32, true },
-                { "i9-14900F", 32, true },
-                { "i9-14900HX", 32, true },
-                { "i9-14900K", 32, true },
-                { "i9-14900KF", 32, true },
-                { "i9-14900KS", 32, true },
-                { "i9-14900T", 32, true },
-                { "i9-14901KE", 16, true },
-                { "i9-14900TE", 32, true },
-                { "i9-14901E", 16, true },
-                { "i9-14901TE", 16, true }
-            };
-
-            static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "Intel Core database must contain at least one entry.");
-            out_ptr = db;
-            out_size = sizeof(db) / sizeof(cpu_entry);
-        }
-
-        static void get_intel_xeon_db(const cpu_entry*& out_ptr, size_t& out_size) noexcept {
-            static constexpr cpu_entry db[] = {
-                { "D-1518", 8, true },
-                { "D-1520", 8, true },
-                { "D-1521", 8, true },
-                { "D-1527", 8, true },
-                { "D-1528", 12, true },
-                { "D-1529", 8, true },
-                { "D-1531", 12, true },
-                { "D-1537", 16, true },
-                { "D-1539", 16, true },
-                { "D-1540", 16, true },
-                { "D-1541", 16, true },
-                { "D-1548", 16, true },
-                { "D-1557", 24, true },
-                { "D-1559", 24, true },
-                { "D-1567", 24, true },
-                { "D-1571", 32, true },
-                { "D-1577", 32, true },
-                { "D-1581", 32, true },
-                { "D-1587", 32, true },
-                { "D-1513N", 8, true },
-                { "D-1523N", 8, true },
-                { "D-1533N", 12, true },
-                { "D-1543N", 16, true },
-                { "D-1553N", 16, true },
-                { "D-1602", 4, true },
-                { "D-1612", 8, true },
-                { "D-1622", 8, true },
-                { "D-1627", 8, true },
-                { "D-1632", 16, true },
-                { "D-1637", 12, true },
-                { "D-1623N", 8, true },
-                { "D-1633N", 12, true },
-                { "D-1649N", 16, true },
-                { "D-1653N", 16, true },
-                { "D-2141I", 16, true },
-                { "D-2161I", 24, true },
-                { "D-2191", 36, true },
-                { "D-2123IT", 8, true },
-                { "D-2142IT", 16, true },
-                { "D-2143IT", 16, true },
-                { "D-2163IT", 24, true },
-                { "D-2173IT", 28, true },
-                { "D-2183IT", 32, true },
-                { "D-2145NT", 16, true },
-                { "D-2146NT", 16, true },
-                { "D-2166NT", 24, true },
-                { "D-2177NT", 28, true },
-                { "D-2187NT", 32, true },
-
-                /* Xeon E */
-                { "E-2104G", 4, false },
-                { "E-2124", 4, false },
-                { "E-2124G", 4, false },
-                { "E-2126G", 6, false },
-                { "E-2134", 8, true },
-                { "E-2136", 12, true },
-                { "E-2144G", 8, true },
-                { "E-2146G", 12, true },
-                { "E-2174G", 8, true },
-                { "E-2176G", 12, true },
-                { "E-2186G", 12, true },
-                { "E-2176M", 12, true },
-                { "E-2186M", 12, true },
-                { "E-2224", 4, false },
-                { "E-2224G", 4, false },
-                { "E-2226G", 6, false },
-                { "E-2234", 8, true },
-                { "E-2236", 12, true },
-                { "E-2244G", 8, true },
-                { "E-2246G", 12, true },
-                { "E-2274G", 8, true },
-                { "E-2276G", 12, true },
-                { "E-2278G", 16, true },
-                { "E-2286G", 12, true },
-                { "E-2288G", 16, true },
-                { "E-2276M", 12, true },
-                { "E-2286M", 16, true },
-                { "E-2314", 4, false },
-                { "E-2324G", 4, false },
-                { "E-2334", 8, true },
-                { "E-2336", 12, true },
-                { "E-2356G", 12, true },
-                { "E-2374G", 8, true },
-                { "E-2378", 16, true },
-                { "E-2378G", 16, true },
-                { "E-2386G", 12, true },
-                { "E-2388G", 16, true },
-                { "E-2414", 4, false },
-                { "E-2434", 8, true },
-                { "E-2436", 12, true },
-                { "E-2456", 12, true },
-                { "E-2468", 16, true },
-                { "E-2478", 16, true },
-                { "E-2486", 12, true },
-                { "E-2488", 16, true },
-
-                /* Xeon W */
-                { "W-2102", 4, false },
-                { "W-2104", 4, false },
-                { "W-2123", 8, true },
-                { "W-2125", 8, true },
-                { "W-2133", 12, true },
-                { "W-2135", 12, true },
-                { "W-2140B", 16, true },
-                { "W-2145", 16, true },
-                { "W-2150B", 20, true },
-                { "W-2155", 20, true },
-                { "W-2170B", 28, true },
-                { "W-2175", 28, true },
-                { "W-2191B", 36, true },
-                { "W-2195", 36, true },
-                { "W-3175X", 56, true },
-                { "W-3223", 16, true },
-                { "W-3225", 16, true },
-                { "W-3235", 24, true },
-                { "W-3245", 32, true },
-                { "W-3245M", 32, true },
-                { "W-3265", 48, true },
-                { "W-3265M", 48, true },
-                { "W-3275", 56, true },
-                { "W-3275M", 56, true },
-                { "w3-2423", 12, true },
-                { "w3-2425", 12, true },
-                { "w3-2435", 16, true },
-                { "w5-2445", 20, true },
-                { "w5-2455X", 24, true },
-                { "w5-2465X", 32, true },
-                { "w7-2475X", 40, true },
-                { "w7-2495X", 48, true },
-                { "w5-3425", 24, true },
-                { "w5-3435X", 32, true },
-                { "w7-3445", 40, true },
-                { "w7-3455", 48, true },
-                { "w7-3465X", 56, true },
-                { "w9-3475X", 72, true },
-                { "w9-3495X", 112, true },
-                { "w3-2525", 16, true },
-                { "w3-2535", 20, true },
-                { "w5-2545", 24, true },
-                { "w5-2555X", 28, true },
-                { "w5-2565X", 36, true },
-                { "w7-2575X", 44, true },
-                { "w7-2595X", 52, true },
-                { "w5-3525", 32, true },
-                { "w5-3535X", 40, true },
-                { "w7-3545", 48, true },
-                { "w7-3555", 56, true },
-                { "w7-3565X", 64, true },
-                { "w9-3575X", 88, true },
-                { "w9-3595X", 120, true }
-            };
-
-            static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "Intel Xeon database must contain at least one entry.");
-            out_ptr = db;
-            out_size = sizeof(db) / sizeof(cpu_entry);
-        }
-
-        static void get_intel_ultra_db(const cpu_entry*& out_ptr, size_t& out_size) noexcept {
-            static constexpr cpu_entry db[] = {
-                /* Series 2 (Arrow Lake - Desktop/Mobile) */
-                { "285K", 24, false },
-                { "265K", 20, false },
-                { "265KF", 20, false },
-                { "245K", 14, false },
-                { "245KF", 14, false },
-
-                /* Series 2 (Arrow Lake-S Desktop Non-K and T) */
-                { "285", 24, false },
-                { "285T", 24, false },
-                { "265", 20, false },
-                { "265F", 20, false },
-                { "265T", 20, false },
-                { "245", 14, false },
-                { "245T", 14, false },
-                { "235", 14, false },
-                { "235T", 14, false },
-                { "225", 10, false },
-                { "225F", 10, false },
-                { "205", 8, false },
-
-                /* Series 2 (Arrow Lake-S Desktop Plus) */
-                { "270K Plus", 24, false },
-                { "250K Plus", 18, false },
-                { "250KF Plus", 18, false },
-
-                /* Series 2 (Arrow Lake-HX Mobile) */
-                { "285HX", 24, false },
-                { "275HX", 24, false },
-                { "265HX", 20, false },
-                { "255HX", 20, false },
-                { "245HX", 14, false },
-                { "235HX", 14, false },
-
-                /* Series 2 (Lunar Lake - Mobile) */
-                { "288V", 8, false },
-                { "268V", 8, false },
-                { "258V", 8, false },
-                { "266V", 8, false },
-                { "256V", 8, false },
-                { "238V", 8, false },
-                { "236V", 8, false },
-                { "228V", 8, false },
-                { "226V", 8, false },
-
-                /* Series 2 (Arrow Lake-HX Mobile Plus) */
-                { "290HX Plus", 24, false },
-                { "270HX Plus", 24, false },
-
-                /* Series 2 (Arrow Lake-H Mobile) */
-                { "285H", 16, false },
-                { "265H", 16, false },
-                { "255H", 16, false },
-                { "235H", 14, false },
-                { "225H", 14, false },
-
-                /* Series 2 (Arrow Lake-U Mobile) */
-                { "265U", 14, true },
-                { "255U", 14, true },
-                { "235U", 14, true },
-                { "225U", 14, true },
-
-                /* Series 2 (Arrow Lake-S Entry Level) */
-                { "235A", 14, false },
-                { "235TA", 14, false },
-                { "235UA", 14, true },
-
-                /*
-                 * Series 1 (Meteor Lake - Mobile)
-                 */
-                { "185H", 22, true },
-                { "165H", 22, true },
-                { "155H", 22, true },
-                { "135H", 18, true },
-                { "125H", 18, true },
-                { "165U", 14, true },
-                { "155U", 14, true },
-                { "150U", 12, true },
-                { "135U", 14, true },
-                { "125U", 14, true },
-                { "120U", 12, true },
-                { "100U", 8, true }
-            };
-
-            static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "Intel Ultra database must contain at least one entry.");
-            out_ptr = db;
-            out_size = sizeof(db) / sizeof(cpu_entry);
-        }
-
-        static void get_amd_ryzen_db(const cpu_entry*& out_ptr, size_t& out_size) noexcept {
-            static const cpu_entry db[] = {
-                /* 3015/3020 */
-                { "3015ce", 4, true },
-                { "3015e", 4, true },
-                { "3020e", 2, false },
-
-                /* Athlon/Ax suffixes */
-                { "860k", 4, false },
-                { "870k", 4, false },
-                { "pro-7350b", 4, false },
-                { "pro-7800b", 4, false },
-                { "pro-7850b", 4, false },
-                { "a10-6700", 4, false },
-                { "a10-6700t", 4, false },
-                { "a10-6790b", 4, false },
-                { "a10-6790k", 4, false },
-                { "a10-6800b", 4, false },
-                { "a10-6800k", 4, false },
-                { "a10-7300", 4, false },
-                { "a10-7400p", 4, false },
-                { "a10-7700k", 4, false },
-                { "a10-7800", 4, false },
-                { "a10-7850k", 4, false },
-                { "a10-7860k", 4, false },
-                { "a10-7870k", 4, false },
-                { "a10-8700b", 4, false },
-                { "a10-8700p", 4, false },
-                { "a10-8750b", 4, false },
-                { "a10-8850b", 4, false },
-                { "a12-8800b", 4, false },
-                { "micro-6400t", 4, false },
-                { "pro-3340b", 4, false },
-                { "pro-3350b", 4, false },
-                { "pro-7300b", 2, false },
-                { "a4-5000", 4, false },
-                { "a4-5100", 4, false },
-                { "a4-6210", 4, false },
-                { "a4-6300", 2, false },
-                { "a4-6320", 2, false },
-                { "a4-7210", 4, false },
-                { "a4-7300", 2, false },
-                { "a4-8350b", 2, false },
-                { "a4-9120c", 2, false },
-                { "pro-7050b", 2, false },
-                { "pro-7400b", 2, false },
-                { "a6-5200", 4, false },
-                { "a6-5200m", 4, false },
-                { "a6-5350m", 2, false },
-                { "a6-6310", 4, false },
-                { "a6-6400b", 2, false },
-                { "a6-6400k", 2, false },
-                { "a6-6420b", 2, false },
-                { "a6-6420k", 2, false },
-                { "a6-7000", 2, false },
-                { "a6-7310", 4, false },
-                { "a6-7400k", 2, false },
-                { "a6-8500b", 2, false },
-                { "a6-8500p", 2, false },
-                { "a6-8550b", 2, false },
-                { "a6-9220c", 2, false },
-                { "pro-7150b", 4, false },
-                { "pro-7600b", 4, false },
-                { "a8-6410", 4, false },
-                { "a8-6500", 4, false },
-                { "a8-6500b", 4, false },
-                { "a8-6500t", 4, false },
-                { "a8-6600k", 4, false },
-                { "a8-7100", 4, false },
-                { "a8-7200p", 4, false },
-                { "a8-7410", 4, false },
-                { "a8-7600", 4, false },
-                { "a8-7650k", 4, false },
-                { "a8-7670k", 4, false },
-                { "a8-8600b", 4, false },
-                { "a8-8600p", 4, false },
-                { "a8-8650b", 4, false },
-
-                /* AI Series (Strix Point) */
-                { "365", 20, true },
-                { "370", 24, true }, 
-                { "375", 24, true }, 
-                { "350", 16, true },
-                { "340", 12, true },
-
-                /* Ryzen AI PRO 300 Series (Enterprise Strix/Krackan Point) */
-                { "pro-340", 12, true },
-                { "pro-350", 16, true },
-                { "pro-360", 16, true },
-                { "pro-365", 20, true },
-                { "pro-370", 24, true },
-                { "pro-375", 24, true },
-
-                /* Athlon */
-                { "3050c", 2, false },
-                { "200ge", 4, true },
-                { "220ge", 4, true },
-                { "240ge", 4, true },
-                { "255e", 2, false },
-                { "3000g", 4, true },
-                { "300ge", 4, true },
-                { "300u", 4, true },
-                { "320ge", 4, true },
-                { "425e", 3, false },
-                { "460", 3, false },
-                { "5150", 4, false },
-                { "5350", 4, false },
-                { "5370", 4, false },
-                { "620e", 4, false },
-                { "631", 4, false },
-                { "638", 4, false },
-                { "641", 4, false },
-                { "740", 4, false },
-                { "750k", 4, false },
-                { "760k", 4, false },
-                { "3150c", 4, false },
-                { "3150g", 4, false },
-                { "3150ge", 4, false },
-                { "3150u", 4, true },
-                { "7220c", 4, true },
-                { "7220u", 4, true },
-                { "3045b", 2, false },
-                { "3145b", 4, true },
-                { "3050e", 4, true },
-                { "3050ge", 4, true },
-                { "3050u", 2, false },
-                { "7120c", 2, false },
-                { "7120u", 2, false },
-                { "3125ge", 4, true },
-                { "940", 4, false },
-                { "950", 4, false },
-                { "970", 4, false },
-
-                /* Business Class */
-                { "b57", 2, false },
-                { "b59", 2, false },
-                { "b60", 2, false },
-                { "b75", 3, false },
-                { "b77", 3, false },
-                { "b97", 4, false },
-                { "b99", 4, false },
-
-                /* E-Series */
-                { "micro-6200t", 2, false },
-                { "e1-2100", 2, false },
-                { "e1-2200", 2, false },
-                { "e1-2500", 2, false },
-                { "e1-6010", 2, false },
-                { "e1-7010", 2, false },
-                { "e2-3000", 2, false },
-                { "e2-3800", 4, false },
-                { "e2-6110", 4, false },
-                { "e2-7110", 4, false },
-
-                /* FX */
-                { "fx-4100", 4, false },
-                { "fx-4130", 4, false },
-                { "fx-4170", 4, false },
-                { "fx-4300", 4, false },
-                { "fx-4320", 4, false },
-                { "fx-4350", 4, false },
-                { "fx-6200", 6, false },
-                { "fx-6300", 6, false },
-                { "fx-6350", 6, false },
-                { "fx-7500", 4, false },
-                { "fx-7600p", 4, false },
-                { "fx-8120", 8, false },
-                { "fx-8150", 8, false },
-                { "fx-8300", 8, false },
-                { "fx-8310", 8, false },
-                { "fx-8320", 8, false },
-                { "fx-8320e", 8, false },
-                { "fx-8350", 8, false },
-                { "fx-8370", 8, false },
-                { "fx-8370e", 8, false },
-                { "fx-8800p", 4, false },
-                { "fx-9370", 8, false },
-                { "fx-9590", 8, false },
-
-                /* Misc */
-                { "micro-6700t", 4, false },
-                { "n640", 2, false },
-                { "n660", 2, false },
-                { "n870", 3, false },
-                { "n960", 4, false },
-                { "n970", 4, false },
-                { "p650", 2, false },
-                { "p860", 3, false },
-
-                /* Phenom II */
-                { "1075t", 6, false },
-                { "555", 2, false },
-                { "565", 2, false },
-                { "570", 2, false },
-                { "840", 4, false },
-                { "850", 4, false },
-                { "960t", 4, false },
-                { "965", 4, false },
-                { "975", 4, false },
-                { "980", 4, false },
-
-                /* Ryzen Suffixes (3/5/7/9/Threadripper consolidated) */
-                { "1200", 4, false },
-                { "1300x", 4, false },
-                /* "210" mapped to Ryzen 5 1400 (First Gen 4c/8t) */
-                { "210", 8, true },
-                { "2200g", 4, false },
-                { "2200ge", 4, false },
-                { "2200u", 4, true },
-                { "2300u", 4, false },
-                { "2300x", 4, false },
-                { "3100", 8, true },
-                { "3200g", 4, false },
-                { "3200ge", 4, false },
-                { "3200u", 4, true },
-                { "3250c", 4, true },
-                { "3250u", 4, true },
-                { "3300u", 4, false },
-                { "3300x", 8, true },
-                { "3350u", 4, false },
-                { "4100", 8, true },
-                { "4300g", 8, true },
-                { "4300ge", 8, true },
-                { "4300u", 4, false },
-                { "5125c", 4, true },
-                { "5300g", 8, true },
-                { "5300ge", 8, true },
-                { "5300u", 8, true },
-                { "5305g", 8, true },
-                { "5305ge", 8, true },
-                { "5400u", 8, true },
-                { "5425c", 8, true },
-                { "5425u", 8, true },
-                { "7320c", 8, true },
-                { "7320u", 8, true },
-                { "7330u", 8, true },
-                { "7335u", 8, true },
-                { "7440u", 8, true },
-                { "8300g", 8, true },
-                { "8300ge", 8, true },
-                { "8440u", 8, true },
-                { "1300", 4, false },
-                { "4350g", 8, true },
-                { "4350ge", 8, true },
-                { "4355g", 8, true },
-                { "4355ge", 8, true },
-                { "4450u", 8, true },
-                { "5350g", 8, true },
-                { "5350ge", 8, true },
-                { "5355g", 8, true },
-                { "5355ge", 8, true },
-                { "5450u", 8, true },
-                { "5475u", 8, true },
-                { "1400", 8, true },
-                { "1500x", 8, true },
-                { "1600", 12, true },
-                { "1600x", 12, true },
-                /* "220" mapped to Ryzen 5 1600 (First Gen 6c/12t) */
-                { "220", 12, true },
-                /* "230" mapped to Ryzen 5 2600 (Second Gen 6c/12t) */
-                { "230", 12, true },
-                /* "240" mapped to Ryzen 5 3600 (Third Gen 6c/12t) */
-                { "240", 12, true },
-                { "2400g", 8, true },
-                { "2400ge", 8, true },
-                { "2500u", 8, true },
-                { "2500x", 8, true },
-                { "2600", 12, true },
-                { "2600e", 12, true },
-                { "2600h", 8, true },
-                { "2600x", 12, true },
-                { "3400g", 8, true },
-                { "3400ge", 8, true },
-                { "3450u", 8, true },
-                { "3500", 6, false },
-                { "3500c", 8, true },
-                { "3500u", 8, true },
-                { "3550h", 8, true },
-                { "3580u", 8, true },
-                { "3600", 12, true },
-                { "3600x", 12, true },
-                { "3600xt", 12, true },
-                { "4500", 12, true },
-                { "4500u", 6, false },
-                { "4600g", 12, true },
-                { "4600ge", 12, true },
-                { "4600h", 12, true },
-                { "4600u", 12, true },
-                { "4680u", 12, true },
-                { "5500", 12, true },
-                { "5500gt", 12, true },
-                { "5500h", 8, true },
-                { "5500u", 12, true },
-                { "5560u", 12, true },
-                { "5600", 12, true },
-                { "5600g", 12, true },
-                { "5600ge", 12, true },
-                { "5600gt", 12, true },
-                { "5600h", 12, true },
-                { "5600hs", 12, true },
-                { "5600t", 12, true },
-                { "5600u", 12, true },
-                { "5600x", 12, true },
-                { "5600x3d", 12, true },
-                { "5600xt", 12, true },
-                { "5605g", 12, true },
-                { "5605ge", 12, true },
-                { "5625c", 12, true },
-                { "5625u", 12, true },
-                { "6600h", 12, true },
-                { "6600hs", 12, true },
-                { "6600u", 12, true },
-                { "7235hs", 8, true },
-                { "7400f", 12, true },
-                { "7430u", 12, true },
-                { "7500f", 12, true },
-                { "7520c", 8, true },
-                { "7520u", 8, true },
-                { "7530u", 12, true },
-                { "7535hs", 12, true },
-                { "7535u", 12, true },
-                { "7540u", 12, true },
-                { "7545u", 12, true },
-                { "7600", 12, true },
-                { "7600x", 12, true },
-                { "7600x3d", 12, true },
-                { "7640hs", 12, true },
-                { "7640u", 12, true },
-                { "7645hx", 12, true },
-                { "8400f", 12, true },
-                { "8500g", 12, true }, /* Zen 4 base with SMT */
-                { "8500ge", 12, true },
-                { "8540u", 12, true },
-                { "8600g", 12, true },
-                { "8640hs", 12, true },
-                { "8640u", 12, true },
-                { "8645hs", 12, true },
-                { "9600", 12, true },
-                { "9600x", 12, true },
-                { "1500", 8, true },
-                { "3350g", 8, true },
-                { "3350ge", 8, true },
-                { "4650g", 12, true },
-                { "4650ge", 12, true },
-                { "4650u", 12, true },
-                { "4655g", 12, true },
-                { "4655ge", 12, true },
-                { "5645", 12, true },
-                { "5650g", 12, true },
-                { "5650ge", 12, true },
-                { "5650u", 12, true },
-                { "5655g", 12, true },
-                { "5655ge", 12, true },
-                { "5675u", 12, true },
-                { "6650h", 12, true },
-                { "6650hs", 12, true },
-                { "6650u", 12, true },
-                { "1700", 16, true },
-                { "1700x", 16, true },
-                { "1800x", 16, true },
-                /* "250" mapped to Ryzen 7 1700 (First Gen 8c/16t) */
-                { "250", 16, true },
-                /* "260" mapped to Ryzen 7 2700 (Second Gen 8c/16t) */
-                { "260", 16, true },
-                { "2700", 16, true },
-                { "2700e", 16, true },
-                { "2700u", 8, true },
-                { "2700x", 16, true },
-                { "2800h", 8, true },
-                { "3700c", 8, true },
-                { "3700u", 8, true },
-                { "3700x", 16, true },
-                { "3750h", 8, true },
-                { "3780u", 8, true },
-                { "3800x", 16, true },
-                { "3800xt", 16, true },
-                { "4700g", 16, true },
-                { "4700ge", 16, true },
-                { "4700u", 8, false },
-                { "4800h", 16, true },
-                { "4800hs", 16, true },
-                { "4800u", 16, true },
-                { "4980u", 16, true },
-                { "5700", 16, true },
-                { "5700g", 16, true },
-                { "5700ge", 16, true },
-                { "5700u", 16, true },
-                { "5700x", 16, true },
-                { "5700x3d", 16, true },
-                { "5705g", 16, true },
-                { "5705ge", 16, true },
-                { "5800", 16, true },
-                { "5800h", 16, true },
-                { "5800hs", 16, true },
-                { "5800u", 16, true },
-                { "5800x", 16, true },
-                { "5800x3d", 16, true },
-                { "5800xt", 16, true },
-                { "5825c", 16, true },
-                { "5825u", 16, true },
-                { "6800h", 16, true },
-                { "6800hs", 16, true },
-                { "6800u", 16, true },
-                { "7435hs", 16, true },
-                { "7700", 16, true },
-                { "7700x", 16, true },
-                { "7730u", 16, true },
-                { "7735hs", 16, true },
-                { "7735u", 16, true },
-                { "7736u", 16, true },
-                { "7745hx", 16, true },
-                { "7800x3d", 16, true },
-                { "7840hs", 16, true },
-                { "7840hx", 24, true },
-                { "7840u", 16, true },
-                { "8700f", 16, true },
-                { "8700g", 16, true },
-                { "8840hs", 16, true },
-                { "8840u", 16, true },
-                { "8845hs", 16, true },
-                { "9700x", 16, true },
-                { "9800x3d", 16, true },
-                { "4750g", 16, true },
-                { "4750ge", 16, true },
-                { "4750u", 16, true },
-                { "5750g", 16, true },
-                { "5750ge", 16, true },
-                { "5755g", 16, true },
-                { "5755ge", 16, true },
-                { "5845", 16, true },
-                { "5850u", 16, true },
-                { "5875u", 16, true },
-                { "6850h", 16, true },
-                { "6850hs", 16, true },
-                { "6850u", 16, true },
-                { "6860z", 16, true },
-                { "7745", 16, true },
-                /* "270" mapped to Ryzen 7 3700X (Third Gen 8c/16t) */
-                { "270", 16, true },
-                { "3900", 24, true },
-                { "3900x", 24, true },
-                { "3900xt", 24, true },
-                { "3950x", 32, true },
-                { "4900h", 16, true },
-                { "4900hs", 16, true },
-                { "5900", 24, true },
-                { "5900hs", 16, true },
-                { "5900hx", 16, true },
-                { "5900x", 24, true },
-                { "5900xt", 32, true },
-                { "5950x", 32, true },
-                { "5980hs", 16, true },
-                { "5980hx", 16, true },
-                { "6900hs", 16, true },
-                { "6900hx", 16, true },
-                { "6980hs", 16, true },
-                { "6980hx", 16, true },
-                { "7845hx", 24, true },
-                { "7900", 24, true },
-                { "7900x", 24, true },
-                { "7900x3d", 24, true },
-                { "7940hs", 16, true },
-                { "7940hx", 32, true },
-                { "7945hx", 32, true },
-                { "7945hx3d", 32, true },
-                { "7950x", 32, true },
-                { "7950x3d", 32, true },
-                { "8945hs", 16, true },
-                { "9850hx", 24, true },
-                { "9900x", 24, true },
-                { "9900x3d", 24, true },
-                { "9950x", 32, true },
-                { "9950x3d", 32, true },
-                { "9955hx", 32, true },
-                { "9600x3d", 12, true },
-                { "5945", 24, true },
-                { "6950h", 16, true },
-                { "6950hs", 16, true },
-                { "7945", 24, true },
-                { "1900x", 16, true },
-                { "1920x", 24, true },
-                { "1950x", 32, true },
-                { "2920x", 24, true },
-                { "2950x", 32, true },
-                { "2970wx", 48, true },
-                { "2990wx", 64, true },
-                { "3960x", 48, true },
-                { "3970x", 64, true },
-                { "3990x", 128, true },
-                { "7960x", 48, true },
-                { "7970x", 64, true },
-                { "7980x", 128, true },
-                { "3945wx", 24, true },
-                { "3955wx", 32, true },
-                { "3975wx", 64, true },
-                { "3995wx", 128, true },
-                { "5945wx", 24, true },
-                { "5955wx", 32, true },
-                { "5965wx", 48, true },
-                { "5975wx", 64, true },
-                { "5995wx", 128, true },
-                { "7945wx", 24, true },
-                { "7955wx", 32, true },
-                { "7965wx", 48, true },
-                { "7975wx", 64, true },
-                { "7985wx", 128, true },
-                { "7995wx", 192, true },
-
-                /* Sempron */
-                { "2650", 2, false },
-                { "3850", 4, false },
-
-                /* Z-Series */
-                { "z1", 12, true }
-            };
-
-            static_assert(sizeof(db) / sizeof(cpu_entry) > 0, "AMD Ryzen database must contain at least one entry.");
-            out_ptr = db;
-            out_size = sizeof(db) / sizeof(cpu_entry);
-        }
     };
 
     template <std::size_t N>
@@ -3432,147 +1455,31 @@ public:
     }
 
     struct memo {
-        struct data_t {
-            bool result;
-            u8 points;
-            bool cached;
-            brand_enum brand_name;
-        };
-        struct cache_entry {
-            bool result;
-            u8 points;
-            bool has_value;
-            brand_enum brand_name;
-        };
-
-        static std::array<cache_entry, enum_size + 1> cache_table;
-
-        static void cache_store(u16 flag, bool result, u8 points, const brand_enum brand = brand_enum::NULL_BRAND) noexcept {
-            if (flag <= enum_size) {
-                VMAWARE_ASSUME(flag <= enum_size);
-                cache_table[flag] = { result, points, true, brand };
-            }
-        }
-
-        static bool is_cached(u16 flag) noexcept {
-            return VMAWARE_LIKELY(flag <= enum_size) && cache_table[flag].has_value;
-        }
-
-        static data_t cache_fetch(u16 flag) noexcept {
-            if (VMAWARE_UNLIKELY(flag > enum_size)) {
-                return { false, 0, false, brand_enum::NULL_BRAND };
-            }
-
-            if (VMAWARE_LIKELY(cache_table[flag].has_value)) {
-                const auto& entry = cache_table[flag];
-                return { entry.result, entry.points, true, entry.brand_name };
-            }
-
-            return { false, 0, false, brand_enum::NULL_BRAND };
-        }
-
-        struct single_brand {
-            static brand_enum brand_cache;
-            static flagset cached_flags;
-            static bool cached;
-
-            static void store(const brand_enum s, const flagset& flags) noexcept {
-                brand_cache = s;
-                cached_flags = flags;
-                cached = true;
-            }
-
-            static bool is_cached(const flagset& flags) noexcept {
-                return cached && (cached_flags == flags);
-            }
-
-            static brand_enum fetch() noexcept {
-                return brand_cache;
-            }
-        };
-
-        struct multi_brand {
-            static std::string brand_cache;
-            static flagset cached_flags;
-            static bool cached;
-
-            static void store(const std::string& s, const flagset& flags) noexcept {
-                try {
-                    brand_cache = s;
-                    cached_flags = flags;
-                    cached = true;
-                }
-                catch (...) {}
-            }
-
-            static bool is_cached(const flagset& flags) noexcept {
-                return cached && (cached_flags == flags);
-            }
-
-            static const std::string& fetch() noexcept {
-                return brand_cache;
-            }
-        };
-
-        struct brand_list {
-            static brand_list_t cache;
-            static flagset cached_flags;
-            static bool cached;
-
-            static void store(const brand_list_t& list, const flagset& flags) noexcept {
-                try {
-                    cache = list;
-                    cached_flags = flags;
-                    cached = true;
-                }
-                catch (...) {}
-            }
-
-            static bool is_cached(const flagset& flags) noexcept {
-                return cached && (cached_flags == flags);
-            }
-
-            static const brand_list_t& fetch() noexcept {
-                return cache;
-            }
-        };
-
-        /* Helper specifically for conclusion strings */
-        struct conclusion {
-            static char cache[512];
-            static flagset cached_flags;
-            static bool cached;
-
-            static void store(const char* s, const flagset& flags) noexcept {
-                str_copy(cache, s);
-                cached_flags = flags;
-                cached = true;
-            }
-
-            static bool is_cached(const flagset& flags) noexcept {
-                return cached && (cached_flags == flags);
-            }
-
-            static const char* fetch() noexcept {
-                return cache;
-            }
-        };
-
         struct cpu_brand {
-            static char brand_cache[128];
-            static bool cached;
-
             static void store(const char* s) noexcept {
-                str_copy(brand_cache, s);
-                cached = true;
+                str_copy(get_cache(), s);
+                get_cached_flag() = true;
             }
 
             static bool is_cached() noexcept {
-                return cached;
+                return get_cached_flag();
             }
 
             static const char* fetch() noexcept {
+                return get_cache();
+            }
+
+        private:
+            using cache_t = char[128];
+
+            static cache_t& get_cache() noexcept {
+                static cache_t brand_cache = { 0 };
                 return brand_cache;
+            }
+
+            static bool& get_cached_flag() noexcept {
+                static bool cached = false;
+                return cached;
             }
         };
 
@@ -3585,19 +1492,27 @@ public:
         };
 
         struct hyperx {
-            static hyperx_state state;
-            static bool cached;
-
             static hyperx_state fetch() noexcept {
-                return state;
+                return get_state();
             }
 
             static void store(const hyperx_state p_state) noexcept {
-                state = p_state;
-                cached = true;
+                get_state() = p_state;
+                get_cached_flag() = true;
             }
 
             static bool is_cached() noexcept {
+                return get_cached_flag();
+            }
+
+        private:
+            static hyperx_state& get_state() noexcept {
+                static hyperx_state state = HYPERV_UNKNOWN;
+                return state;
+            }
+
+            static bool& get_cached_flag() noexcept {
+                static bool cached = false;
                 return cached;
             }
         };
@@ -3610,67 +1525,106 @@ public:
 
         struct leaf_cache {
             static constexpr std::size_t CAPACITY = 128;
-            static std::array<leaf_entry, CAPACITY> table;
-            static std::size_t count;
-            static std::size_t next_index;
 
             static bool fetch(u32 leaf, bool& out) noexcept {
-                for (std::size_t i = 0; i < count; ++i) {
+                auto& table = get_table();
+                const std::size_t cnt = get_count();
+                for (std::size_t i = 0; i < cnt; ++i) {
                     if (table[i].has_value && table[i].leaf == leaf) {
                         out = table[i].value;
                         return true;
                     }
                 }
-
                 return false;
             }
 
             static void store(u32 leaf, bool val) noexcept {
-                for (std::size_t i = 0; i < count; ++i) {
-                    auto& entry = table[i];
-                    if (entry.has_value && entry.leaf == leaf) {
-                        entry.value = val;
+                auto& table = get_table();
+                std::size_t& cnt = get_count();
+                std::size_t& next_index = get_next_index();
+
+                for (std::size_t i = 0; i < cnt; ++i) {
+                    if (table[i].has_value && table[i].leaf == leaf) {
+                        table[i].value = val;
                         return;
                     }
                 }
 
-                if (count < CAPACITY) {
-                    table[count] = { leaf, val, true };
-                    ++count;
+                if (cnt < CAPACITY) {
+                    table[cnt] = { leaf, val, true };
+                    ++cnt;
                     return;
                 }
 
                 table[next_index] = { leaf, val, true };
                 next_index = (next_index + 1) % CAPACITY;
             }
+
+        private:
+            static std::array<leaf_entry, CAPACITY>& get_table() noexcept {
+                static std::array<leaf_entry, CAPACITY> table{};
+                return table;
+            }
+
+            static std::size_t& get_count() noexcept {
+                static std::size_t count = 0;
+                return count;
+            }
+
+            static std::size_t& get_next_index() noexcept {
+                static std::size_t next_index = 0;
+                return next_index;
+            }
         };
 
         struct bios_info {
-            static char manufacturer[256];
-            static char model[256];
-            static bool cached_manufacturer;
-            static bool cached_model;
+            using buffer_t = char[256];
+
+            /* Declared for unevaluated expressions like sizeof(memo::bios_info::manufacturer) */
+            static buffer_t manufacturer;
+            static buffer_t model;
 
             static const char* fetch_manufacturer() noexcept {
-                return manufacturer;
+                return get_man();
             }
 
             static const char* fetch_model() noexcept {
-                return model;
+                return get_mod();
             }
 
             static void store_manufacturer(const char* VMAWARE_RESTRICT s) noexcept {
-                str_copy(manufacturer, s);
-                cached_manufacturer = true;
+                str_copy(get_man(), s);
+                get_cached_man() = true;
             }
 
             static void store_model(const char* VMAWARE_RESTRICT s) noexcept {
-                str_copy(model, s);
-                cached_model = true;
+                str_copy(get_mod(), s);
+                get_cached_mod() = true;
             }
 
             static bool is_cached() noexcept {
-                return cached_manufacturer && cached_model;
+                return get_cached_man() && get_cached_mod();
+            }
+
+        private:
+            static buffer_t& get_man() noexcept {
+                static buffer_t s_manufacturer = { 0 };
+                return s_manufacturer;
+            }
+
+            static buffer_t& get_mod() noexcept {
+                static buffer_t s_model = { 0 };
+                return s_model;
+            }
+
+            static bool& get_cached_man() noexcept {
+                static bool cached = false;
+                return cached;
+            }
+
+            static bool& get_cached_mod() noexcept {
+                static bool cached = false;
+                return cached;
             }
         };
 
@@ -3738,7 +1692,7 @@ public:
 
     #if (VMAWARE_MSVC)
         #pragma warning(push)
-        #pragma warning(disable: 4324) 
+        #pragma warning(disable: 4324)
     #endif
         /* Align to prevent false sharing when triggering hypervisor exits with the intentional data race condition */
         struct alignas(64) cache_state {
@@ -3807,7 +1761,7 @@ public:
             }
         };
 
-        struct scheduler {         
+        struct scheduler {
             /*
               - Golden Rules (must happen ALWAYS; if they don't happen the check should be aborted):
               - 1. The check needs AT LEAST two different physical cores, so if one single core is detected, returns {}
@@ -4546,231 +2500,45 @@ public:
             return exception_status;
         };
 
-        /* Retrieves the addresses of specified functions from a loaded module using the export directory, manual implementation of GetProcAddress without PE export forwarding parsing */
-        static void get_function(const HMODULE module, const char* const VMAWARE_RESTRICT names[], void** const VMAWARE_RESTRICT functions, const size_t count, const bool cache_result = true) {
-            using func_map = std::unordered_map<std::string, void*>;
-            static std::unordered_map<HMODULE, func_map> function_cache;
-
-            if (VMAWARE_UNLIKELY(!functions || !names || count == 0 || count > (SIZE_MAX / sizeof(void*)))) {
+        static inline void get_function(
+            const HMODULE module,
+            const char* const VMAWARE_RESTRICT names[],
+            void** const VMAWARE_RESTRICT functions,
+            const size_t count
+        ) {
+            if (!module || !names || !functions || count == 0) {
                 return;
             }
 
-            VMAWARE_ASSUME(names != nullptr);
-            VMAWARE_ASSUME(functions != nullptr);
-
-            std::memset(functions, 0, count * sizeof(void*));
-
-            if (!module) {
-                return;
-            }
-
-            u8* base = reinterpret_cast<u8*>(module);
-            const uintptr_t base_addr = reinterpret_cast<uintptr_t>(base);
-
-            size_t module_size = 0;
-            MEMORY_BASIC_INFORMATION mbi = {};
-            if (VirtualQuery(base, &mbi, sizeof(mbi))) {
-                if (mbi.State != MEM_COMMIT || mbi.AllocationBase != base) {
-                    return;
-                }
-                module_size = static_cast<size_t>(mbi.RegionSize);
-            }
-            else {
-                return;
-            }
-
-            if (base_addr > (UINTPTR_MAX - module_size)) {
-                return;
-            }
-
-            auto valid_range = [&](size_t offset, size_t sz) noexcept -> bool {
-                return (sz > 0) && (offset < module_size) && (sz <= module_size - offset);
-            };
-
-            auto cstr_from_rva = [&](u32 rva) noexcept -> const char* {
-                if (rva == 0 || !valid_range(static_cast<size_t>(rva), 1)) {
-                    return nullptr;
-                }
-
-                const char* start = reinterpret_cast<const char*>(base + rva);
-                const size_t remaining = module_size - static_cast<size_t>(rva);
-                constexpr size_t max_name_scan = 512;
-                const size_t check_len = (remaining < max_name_scan) ? remaining : max_name_scan;
-
-                if (std::memchr(start, '\0', check_len)) {
-                    return start;
-                }
-
-                return nullptr;
-            };
-
-            /* Validate DOS header */
-            if (VMAWARE_UNLIKELY(!valid_range(0, sizeof(IMAGE_DOS_HEADER)))) {
-                return;
-            }
-            const auto* dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-            if (VMAWARE_UNLIKELY(dos_header->e_magic != IMAGE_DOS_SIGNATURE)) {
-                return;
-            }
-
-            /* e_lfanew -> NT headers */
-            if (VMAWARE_UNLIKELY(dos_header->e_lfanew < 0 || (static_cast<size_t>(dos_header->e_lfanew) % sizeof(u32)) != 0)) {
-                return;
-            }
-            const size_t e_lfanew = static_cast<size_t>(dos_header->e_lfanew);
-
-            if (e_lfanew + sizeof(IMAGE_NT_HEADERS) > module_size) {
-                MEMORY_BASIC_INFORMATION nt_mbi = {};
-                if (VirtualQuery(base + e_lfanew, &nt_mbi, sizeof(nt_mbi))) {
-                    if (nt_mbi.State == MEM_COMMIT && nt_mbi.AllocationBase == base) {
-                        const size_t region_end = static_cast<size_t>(reinterpret_cast<u8*>(nt_mbi.BaseAddress) - base) + nt_mbi.RegionSize;
-                        if (e_lfanew + sizeof(IMAGE_NT_HEADERS) <= region_end) {
-                            module_size = region_end;
-                        }
-                    }
-                }
-            }
-
-            if (VMAWARE_UNLIKELY(!valid_range(e_lfanew, sizeof(IMAGE_NT_HEADERS)))) {
-                return;
-            }
-            const auto* nt_headers = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + e_lfanew);
-            if (VMAWARE_UNLIKELY(nt_headers->Signature != IMAGE_NT_SIGNATURE)) {
-                return;
-            }
-
-        #if defined(_WIN64)
-            if (nt_headers->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-                return;
-            }
-        #else
-            if (nt_headers->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
-                return;
-            }
-        #endif
-
-            const size_t size_of_image = static_cast<size_t>(nt_headers->OptionalHeader.SizeOfImage);
-            constexpr size_t max_module_size = 1024u * 1024u * 1024u;
-            if (size_of_image < sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS) || size_of_image > max_module_size) {
-                return;
-            }
-            if (size_of_image > module_size) {
-                module_size = size_of_image;
-            }
-
-            /* Check export data directory exists */
-            if (nt_headers->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXPORT) {
-                return;
-            }
-
-            const auto& dd = nt_headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-            if (dd.VirtualAddress == 0 || dd.Size == 0) {
-                return;
-            }
-
-            /* Validate export directory fits */
-            if (!valid_range(static_cast<size_t>(dd.VirtualAddress), sizeof(IMAGE_EXPORT_DIRECTORY))) {
-                return;
-            }
-
-            const auto* export_directory = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dd.VirtualAddress);
-
-            const u32 name_count = export_directory->NumberOfNames;
-            const u32 function_count = export_directory->NumberOfFunctions;
-
-            constexpr u32 max_names = 1u << 20;
-            if (name_count == 0 || name_count > max_names) {
-                return;
-            }
-            if (function_count == 0 || function_count > max_names) {
-                return;
-            }
-
-            const u32 addr_names = export_directory->AddressOfNames;
-            const u32 addr_funcs = export_directory->AddressOfFunctions;
-            const u32 addr_ord = export_directory->AddressOfNameOrdinals;
-
-            if (addr_names == 0 || addr_funcs == 0 || addr_ord == 0) {
-                return;
-            }
-            if (!valid_range(static_cast<size_t>(addr_names), static_cast<size_t>(name_count) * sizeof(u32))) {
-                return;
-            }
-            if (!valid_range(static_cast<size_t>(addr_funcs), static_cast<size_t>(function_count) * sizeof(u32))) {
-                return;
-            }
-            if (!valid_range(static_cast<size_t>(addr_ord), static_cast<size_t>(name_count) * sizeof(u16))) {
-                return;
-            }
-
-            const u32* name_rvas = reinterpret_cast<const u32*>(base + addr_names);
-            const u32* func_rvas = reinterpret_cast<const u32*>(base + addr_funcs);
-            const u16* ordinals = reinterpret_cast<const u16*>(base + addr_ord);
-
-            if (VMAWARE_UNLIKELY(!name_rvas || !func_rvas || !ordinals)) {
-                return;
-            }
-
-            VMAWARE_ASSUME(name_rvas != nullptr);
-            VMAWARE_ASSUME(func_rvas != nullptr);
-            VMAWARE_ASSUME(ordinals != nullptr);
+            /* hash key -> function pointer */
+            static std::unordered_map<u64, void*> cache;
 
             for (size_t i = 0; i < count; ++i) {
-                const char* current_name = names[i];
-                if (!current_name) {
+                const char* name = names[i];
+                if (!name) {
+                    functions[i] = nullptr;
                     continue;
                 }
-                const std::string s_name(current_name);
 
-                /* Only query and populate the cache if it's not a dynamically loaded module with LoadLibraryEx */
-                if (cache_result) {
-                    func_map& module_cache = function_cache[module];
-                    const auto cache_it = module_cache.find(s_name);
-                    if (VMAWARE_LIKELY(cache_it != module_cache.end())) {
-                        functions[i] = cache_it->second;
-                        continue;
-                    }
+                /*
+                 * 64-bit FNV-1a hash combining the module pointer and string characters
+                 * This is done because function names like NtAllocateVirtualMemory (23 chars) exceed C++'s 15-character SSO limit
+                 * forcing std::string to call malloc and free on every lookup, this is why we hash to eliminate heap allocations entirely
+                 */
+                u64 key = reinterpret_cast<uintptr_t>(module) ^ 14695981039346656037ULL;
+                const char* p = name;
+                while (*p) {
+                    key = (key ^ static_cast<unsigned char>(*p++)) * 1099511628211ULL;
                 }
 
-                /* Binary search over names */
-                u32 lo = 0, hi = name_count;
-                while (lo < hi) {
-                    const u32 mid = lo + (hi - lo) / 2;
-                    const u32 mid_name_rva = name_rvas[mid];
-                    const char* mid_name = cstr_from_rva(mid_name_rva);
-                    if (!mid_name) {
-                        lo = name_count;
-                        break;
-                    }
-
-                    const i32 cmp = strcmp(current_name, mid_name);
-                    if (cmp > 0) {
-                        lo = mid + 1;
-                    }
-                    else {
-                        hi = mid;
-                    }
+                const auto it = cache.find(key);
+                if (it != cache.end()) {
+                    functions[i] = it->second;
                 }
-
-                if (lo < name_count) {
-                    const char* candidate_name = cstr_from_rva(name_rvas[lo]);
-                    if (candidate_name && strcmp(current_name, candidate_name) == 0) {
-                        const u16 name_ordinal = ordinals[lo];
-                        if (static_cast<u32>(name_ordinal) >= function_count) {
-                            continue;
-                        }
-                        const u32 function_rva = func_rvas[name_ordinal];
-                        if (function_rva == 0 || !valid_range(static_cast<size_t>(function_rva), 1)) {
-                            continue;
-                        }
-                        void* addr = reinterpret_cast<void*>(base + function_rva);
-                        functions[i] = addr;
-
-                        if (cache_result) {
-                            function_cache[module][s_name] = addr;
-                        }
-                        continue;
-                    }
+                else {
+                    void* addr = reinterpret_cast<void*>(GetProcAddress(module, name));
+                    cache[key] = addr;
+                    functions[i] = addr;
                 }
             }
         }
@@ -5108,7 +2876,7 @@ public:
                 !(flag >= LINUX_START && flag <= LINUX_END);
             #elif (VMAWARE_WINDOWS)
                 !(flag >= WINDOWS_START && flag <= WINDOWS_END);
-            #elif (VMAWARE_APPLE) 
+            #elif (VMAWARE_APPLE)
                 !(flag >= MACOS_START && flag <= MACOS_END);
             #else
                 false;
@@ -5226,7 +2994,7 @@ public:
         #endif
         }
 
-        [[nodiscard]] static bool is_admin() noexcept {
+        [[nodiscard]] static vmaware_technique is_admin() noexcept {
         #if (VMAWARE_LINUX || VMAWARE_APPLE)
             return (geteuid() == 0);
         #elif (VMAWARE_WINDOWS)
@@ -5537,11 +3305,11 @@ public:
         #else
             VMAWARE_UNUSED(executable);
             return false;
-        #endif  
+        #endif
         }
 
 
-        [[nodiscard]] static bool is_x86_process_on_arm() {
+        [[nodiscard]] static vmaware_technique is_x86_process_on_arm() {
             static const bool cached = []() -> bool {
             #if (VMAWARE_WINDOWS)
                 const char* brand = cpu::get_brand();
@@ -5605,7 +3373,7 @@ public:
                         }
                     }
                 #endif
-            #endif  
+            #endif
 
                 if (cpu::is_leaf_supported(cpu::leaf::hypervisor)) {
                     const std::string vendor = cpu::cpu_manufacturer(cpu::leaf::hypervisor);
@@ -6204,7 +3972,7 @@ public:
         }
 
     #if (VMAWARE_WINDOWS)
-        [[nodiscard]] static bool is_windows_11() {
+        [[nodiscard]] static vmaware_technique is_windows_11() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
@@ -6226,7 +3994,7 @@ public:
             return rtl_get_version(&vi) == 0 && vi.dwBuildNumber >= 22000;
         }
 
-        [[nodiscard]] static bool is_windows_8_or_newer() {
+        [[nodiscard]] static vmaware_technique is_windows_8_or_newer() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
@@ -6248,14 +4016,14 @@ public:
             return (rtl_get_version(&vi) == 0 && (vi.dwMajorVersion > 6 || (vi.dwMajorVersion == 6 && vi.dwMinorVersion >= 2)));
         }
 
-        [[nodiscard]] static bool is_32bit_execution_disabled() noexcept {
+        [[nodiscard]] static vmaware_technique is_32bit_execution_disabled() noexcept {
         #if (VMAWARE_X86_64)
             wchar_t wow64_dir[MAX_PATH] = { 0 };
             const UINT ret = GetSystemWow64DirectoryW(wow64_dir, MAX_PATH);
             if (ret == 0) {
                 const DWORD err = GetLastError();
                 if (err == ERROR_CALL_NOT_IMPLEMENTED || err == ERROR_PATH_NOT_FOUND) {
-                    return true; 
+                    return true;
                 }
                 return true;
             }
@@ -6628,19 +4396,16 @@ public:
         static constexpr const char* CONTAINERD = "Containerd";
 
         static brand_list_t brand_list(const flagset& flags) {
-            if (memo::brand_list::is_cached(flags)) {
-                return memo::brand_list::fetch();
-            }
-
             /* Run all the techniques */
-            const u16 score = core::run_all(flags);
+            const core::run_result res = core::run_all(flags);
+            const u16 score = res.points;
 
             brand_list_t active_brands = {};
             active_brands.reserve(MAX_BRANDS);
 
             for (size_t i = 0; i < MAX_BRANDS; ++i) {
-                if (core::brand_scoreboard.at(i).score > 0) {
-                    active_brands.emplace_back(std::make_pair(core::brand_scoreboard.at(i).name, core::brand_scoreboard.at(i).score));
+                if (res.brand_scores[i] > 0) {
+                    active_brands.emplace_back(std::make_pair(static_cast<brand_enum>(i), res.brand_scores[i]));
                 }
             }
 
@@ -6657,7 +4422,6 @@ public:
             /* If all brands have a point of 0, return "Unknown" */
             if (active_brands.empty()) {
                 active_brands.emplace_back(brand_enum::NULL_BRAND, 0);
-                memo::brand_list::store(active_brands, flags);
                 return active_brands;
             }
 
@@ -6670,7 +4434,6 @@ public:
                     remove(brand_enum::HYPERV_ROOT);
                 }
 
-                memo::brand_list::store(active_brands, flags);
                 return active_brands;
             }
 
@@ -6785,11 +4548,10 @@ public:
                     const brand_element_t& a,
                     const brand_element_t& b
                 ) {
-                    return a.second > b.second; /* .second is brand score */  
+                    return a.second > b.second; /* .second is brand score */
                 } );
             }
 
-            memo::brand_list::store(active_brands, flags);
             return active_brands;
         }
 
@@ -6871,7 +4633,7 @@ public:
 
             return "Invalid";
         }
-        
+
         static std::string brand_multiple(const brand_list_t& list) {
             std::string buffer = {};
             buffer += brands::brand_enum_to_string(list[0].first);
@@ -6885,14 +4647,9 @@ public:
         }
 
         static std::string brand_multiple(const flagset& flags = core::generate_default()) {
-            if (memo::multi_brand::is_cached(flags)) {
-                return memo::multi_brand::fetch();
-            }
-
             const brand_list_t& list = brands::brand_list(flags);
             const std::string& buffer = brand_multiple(list);
 
-            memo::multi_brand::store(buffer, flags);
             return buffer;
         }
 
@@ -6902,16 +4659,8 @@ public:
         }
 
         static brand_enum brand_single(const flagset& flags = core::generate_default()) {
-            if (memo::single_brand::is_cached(flags)) {
-                return memo::single_brand::fetch();
-            }
-
-            const brand_list_t& list = brands::brand_list(flags);
-            const enum brand_enum brand = brand_single(list);
-
-            memo::single_brand::store(brand, flags);
-
-            return brand;
+            const brand_list_t list = brands::brand_list(flags);
+            return brand_single(list);
         }
     };
 
@@ -6927,7 +4676,7 @@ public:
      * @category x86
      * @implements VM::VMID
      */
-     [[nodiscard]] static bool vmid() {
+     [[nodiscard]] static vmaware_technique vmid() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -6945,7 +4694,7 @@ public:
      * @category x86
      * @implements VM::CPU_BRAND
      */
-     [[nodiscard]] static bool cpu_brand() {
+     [[nodiscard]] static vmaware_technique cpu_brand() {
      #if (!VMAWARE_X86)
          return false;
      #else
@@ -7000,13 +4749,13 @@ public:
      * @category x86
      * @implements VM::HYPERVISOR_BIT
      */
-    [[nodiscard]] static bool hypervisor_bit() {
+    [[nodiscard]] static vmaware_technique hypervisor_bit() {
     #if (!VMAWARE_X86)
         return false;
     #else
         u32 eax = 0;
-        u32 ebx = 0; 
-        u32 ecx = 0; 
+        u32 ebx = 0;
+        u32 ecx = 0;
         u32 edx = 0;
 
         cpu::cpuid(eax, ebx, ecx, edx, cpu::leaf::features);
@@ -7037,7 +4786,7 @@ public:
      * @category x86
      * @implements VM::HYPERVISOR_STR
      */
-    [[nodiscard]] static bool hypervisor_str() {
+    [[nodiscard]] static vmaware_technique hypervisor_str() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -7058,9 +4807,9 @@ public:
         );
 
         return (strlen(out + 4) >= 4);
-    #endif  
+    #endif
     }
-    
+
 
     /**
      * @brief Check for various Bochs-related emulation oversights through CPU checks
@@ -7068,7 +4817,7 @@ public:
      * @author Discovered by Peter Ferrie, Senior Principal Researcher, Symantec Advanced Threat Research peter_ferrie@symantec.com
      * @implements VM::BOCHS_CPU
      */
-    [[nodiscard]] static bool bochs_cpu() {
+    [[nodiscard]] static vmaware_technique bochs_cpu() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -7136,331 +4885,6 @@ public:
         return false;
     #endif
     }
-       
-    
-    /**
-	 * @brief Check if the system's thread count matches the expected thread count for the detected CPU model
-     * @category x86
-     * @implements VM::THREAD_MISMATCH
-     */
-    [[nodiscard]] static bool thread_mismatch() {
-    #if (!VMAWARE_X86)
-        return false;
-    #else
-        auto is_smt_active = []() noexcept -> bool {
-        #if (VMAWARE_WINDOWS)
-            DWORD len = 0;
-
-            if (GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len) ||
-                GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-                return false;
-            }
-
-            unsigned char* buf = nullptr;
-            bool result = false;
-
-            /* To support CPU hot-plugging */
-            while (true) {
-                buf = static_cast<unsigned char*>(_aligned_malloc(len, alignof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)));
-                if (!buf) {
-                    return false;
-                }
-
-                if (GetLogicalProcessorInformationEx(
-                    RelationProcessorCore,
-                    reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buf),
-                    &len)) {
-                    break;
-                }
-
-                _aligned_free(buf);
-                buf = nullptr;
-
-                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-                    return false;
-                }
-            }
-
-            size_t offset = 0;
-            while (offset < len) {
-                const auto* rec = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf + offset);
-
-                if (len - offset < sizeof(DWORD) * 2) {
-                    break;
-                }
-
-                if (rec->Size == 0 || offset + rec->Size > len) {
-                    break;
-                }
-
-                if (rec->Relationship == RelationProcessorCore) {
-                    constexpr size_t header_min = offsetof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor.GroupMask);
-                    if (rec->Size < header_min) {
-                        break;
-                    }
-
-                    const PROCESSOR_RELATIONSHIP& pr = rec->Processor;
-                    const size_t min_size = header_min + (static_cast<size_t>(pr.GroupCount) * sizeof(GROUP_AFFINITY));
-                    if (rec->Size < min_size) {
-                        break;
-                    }
-
-                    unsigned logicals = 0;
-                    for (WORD i = 0; i < pr.GroupCount; ++i) {
-                        logicals += util::popcount(static_cast<unsigned long long>(pr.GroupMask[i].Mask));
-                    }
-
-                    if (logicals > 1) {
-                        result = true;
-                        break;
-                    }
-                }
-
-                offset += rec->Size; 
-            }
-
-            _aligned_free(buf);
-            return result;
-
-        #elif (VMAWARE_APPLE)
-
-            int logical = 0, physical = 0;
-            size_t sz = sizeof(logical);
-
-            if (sysctlbyname("hw.logicalcpu", &logical, &sz, nullptr, 0) != 0) {
-                return false;
-            }
-
-            sz = sizeof(physical);
-            if (sysctlbyname("hw.physicalcpu", &physical, &sz, nullptr, 0) != 0) {
-                return false;
-            }
-
-            return logical > physical;
-
-        #else
-
-            {
-                std::ifstream f("/sys/devices/system/cpu/smt/control");
-                if (f) {
-                    std::string s;
-                    if (std::getline(f, s)) {
-                        string::trim_inplace(s);
-
-                        if (s == "on") {
-                            return true;
-                        }
-
-                        if (s == "off" || s == "forceoff" || s == "notsupported") {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            {
-                std::ifstream f("/sys/devices/system/cpu/smt/active");
-                if (f) {
-                    std::string s;
-                    if (std::getline(f, s)) {
-                        string::trim_inplace(s);
-
-                        if (s == "1") {
-                            return true;
-                        }
-
-                        if (s == "0") {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            {
-                std::ifstream f("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list");
-                if (f) {
-                    std::string s;
-                    if (std::getline(f, s)) {
-                        string::trim_inplace(s);
-
-                        for (char ch : s) {
-                            if (ch == ',' || ch == '-') {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            {
-                std::ifstream cpuinfo("/proc/cpuinfo");
-                if (cpuinfo) {
-                    std::string line;
-                    int siblings = -1;
-                    int cores = -1;
-
-                    while (std::getline(cpuinfo, line)) {
-                        if (line.empty()) {
-                            break;
-                        }
-
-                        auto pos = line.find(':');
-                        if (pos == std::string::npos) {
-                            continue;
-                        }
-
-                        std::string key = line.substr(0, pos);
-                        std::string val = line.substr(pos + 1);
-
-                        string::trim_inplace(key);
-                        string::trim_inplace(val);
-
-                        if (key == "siblings") {
-                            try { siblings = std::stoi(val); }
-                            catch (...) {}
-                        }
-                        else if (key == "cpu cores") {
-                            try { cores = std::stoi(val); }
-                            catch (...) {}
-                        }
-                    }
-
-                    if (siblings > cores && siblings > 0 && cores > 0) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        #endif
-        };
-
-    #if (VMAWARE_WINDOWS && defined VMAWARE_DEBUG)
-        const char* manufacturer = "";
-        const char* device_model = "";
-        if (util::get_manufacturer_and_model(&manufacturer, &device_model)) {
-            vma_debug("{\"manufacturer\": \"", manufacturer, "\", \"model\": \"", device_model, "\"}");
-        }
-    #endif
-
-        constexpr size_t max_model_len = 32;
-        cpu::cpu_type type = cpu::cpu_type::UNKNOWN;
-        size_t db_size = 0;
-        const cpu::cpu_entry* db = nullptr;
-        const cpu::cpu_entry* matched = nullptr;
-        const char* model_name = nullptr;
-        cpu::model_struct model{};
-
-        if (cpu::is_intel()) {
-            model = cpu::get_model();
-            if (model.found) {
-                model_name = model.string;
-
-                if (strstr(model_name, "Ultra") != nullptr) {
-                    type = cpu::cpu_type::INTEL_ULTRA;
-                    cpu::get_intel_ultra_db(db, db_size);
-                }
-                else if (model.is_i_series) {
-                    type = cpu::cpu_type::INTEL_I;
-                    cpu::get_intel_core_db(db, db_size);
-                }
-                else if (model.is_xeon) {
-                    type = cpu::cpu_type::INTEL_XEON;
-                    cpu::get_intel_xeon_db(db, db_size);
-                }
-            }
-        }
-        else if (cpu::is_amd()) {
-            type = cpu::cpu_type::AMD;
-            model_name = cpu::get_brand();
-            cpu::get_amd_ryzen_db(db, db_size);
-        }
-
-        if (model_name != nullptr && db != nullptr && model_name[0] != '\0') {
-            const char* str = model_name;
-
-            for (size_t i = 0; str[i] != '\0'; ) {
-                const char c = str[i];
-                if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) {
-                    i++;
-                    continue;
-                }
-
-                u32 current_hash = 0;
-                size_t current_len = 0;
-                size_t j = i;
-
-                while (true) {
-                    char k = str[j];
-                    const bool is_valid = 
-                        (k >= '0' && k <= '9') ||
-                        (k >= 'A' && k <= 'Z') ||
-                        (k >= 'a' && k <= 'z') ||
-                        (k == '-');
-
-                    if (!is_valid) {
-                        break;
-                    }
-
-                    if (current_len >= max_model_len) {
-                        while (str[j] != '\0' && str[j] != ' ') {
-                            j++;
-                        }
-                        break;
-                    }
-
-                    if (type == cpu::cpu_type::AMD && (k >= 'A' && k <= 'Z')) {
-                        k += 32;
-                    }
-
-                    current_hash = util::hash::crc32c_byte(current_hash, k);
-                    current_len++;
-                    j++;
-
-                    const char next = str[j];
-                    const bool next_is_alnum = 
-                        (next >= '0' && next <= '9') ||
-                        (next >= 'A' && next <= 'Z') ||
-                        (next >= 'a' && next <= 'z');
-
-                    if (!next_is_alnum) {
-                        for (size_t idx = 0; idx < db_size; ++idx) {
-                            if (db[idx].hash == current_hash) {
-                                if (matched == nullptr || current_len > 0) {
-                                    matched = &db[idx];
-                                }
-                            }
-                        }
-                    }
-                }
-
-                i = j;
-            }
-        }
-
-        if (matched == nullptr) {
-            return false;
-        }
-
-        vma_debug("CPU model = ", model_name);
-
-        const u32 actual = memo::thread_count::fetch();
-        const bool model_expects_smt = matched->smt;
-
-        if (model_expects_smt && !is_smt_active()) {
-            vma_debug("THREAD_MISMATCH: CPU normally runs under SMT, but SMT was fully disabled on BIOS");
-            return false;
-        }
-
-        if (actual != matched->threads) {
-            vma_debug("THREAD_MISMATCH: Current threads -> ", actual);
-            vma_debug("THREAD_MISMATCH: Expected threads -> ", matched->threads);
-            return true;
-        }
-
-        return false;
-    #endif
-    }
 
 
     /**
@@ -7468,7 +4892,7 @@ public:
      * @category x86
      * @implements VM::CPUID_SIGNATURE
      */
-    [[nodiscard]] static bool cpuid_signature() {
+    [[nodiscard]] static vmaware_technique cpuid_signature() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -7496,18 +4920,18 @@ public:
             }
 
             u32 l1_eax = 0;
-            u32 l1_ebx = 0; 
-            u32 l1_ecx = 0; 
+            u32 l1_ebx = 0;
+            u32 l1_ecx = 0;
             u32 l1_edx = 0;
-            
+
             u32 vb_eax = 0;
-            u32 vb_ebx = 0; 
-            u32 vb_ecx = 0; 
+            u32 vb_ebx = 0;
+            u32 vb_ecx = 0;
             u32 vb_edx = 0;
-            
+
             u32 v1f_eax = 0;
-            u32 v1f_ebx = 0; 
-            u32 v1f_ecx = 0; 
+            u32 v1f_ebx = 0;
+            u32 v1f_ecx = 0;
             u32 v1f_edx = 0;
 
             u32 aba_start = 0;
@@ -7535,8 +4959,8 @@ public:
                 cpu::cpuid(unused, l1_ebx, unused, unused, cpu::leaf::features, 0);
                 aba_end = (l1_ebx >> 24) & 0xFF;
 
-                if (aba_start == aba_end || ++retries >= 8) { 
-                    break; 
+                if (aba_start == aba_end || ++retries >= 8) {
+                    break;
                 }
             }
 
@@ -7616,20 +5040,20 @@ public:
         return false;
     #endif
     }
-                
-                
+
+
     /**
      * @brief Check for Intel KGT (Trusty branch) hypervisor signature in CPUID
      * @link https://github.com/intel/ikgt-core/blob/7dfd4d1614d788ec43b02602cce7a272ef8d5931/vmm/vmexit/vmexit_cpuid.c
      * @category x86
      * @implements VM::KGT_SIGNATURE
      */
-    [[nodiscard]] static bool intel_kgt_signature() {
+    [[nodiscard]] static vmaware_technique intel_kgt_signature() {
     #if (!VMAWARE_X86)
         return false;
     #else
         u32 unused = 0;
-        u32 ecx = 0; 
+        u32 ecx = 0;
         u32 edx = 0;
         cpu::cpuid(unused, unused, ecx, edx, cpu::leaf::hv_privileges);
 
@@ -7650,537 +5074,545 @@ public:
      * @category Windows, x86
      * @implements VM::TIMER
      */
-    [[nodiscard]] static bool timer() VMAWARE_SERIALIZE {
+    [[nodiscard]] static vmaware_technique timer() VMAWARE_SERIALIZE {
     #if (VMAWARE_X86 && VMAWARE_WINDOWS)
-        if (util::is_x86_process_on_arm()) {
-            vma_debug("TIMER: Running inside a binary translation layer");
-            return false;
-        }
-
-        const GROUP_AFFINITY trigger_affinity = timer::scheduler::get_mask(true);
-        static GROUP_AFFINITY counter_affinity{};
-        counter_affinity = timer::scheduler::get_mask(false);
-
-        if (!trigger_affinity.Mask || !counter_affinity.Mask) {
-            return false;
-        }
-
-        const HMODULE ntdll = memory::get_module(true);
-        if (!ntdll) {
-            return false;
-        }
-
-        constexpr const char* function_names[] = {
-            "ZwRaiseException"
-        };
-        void* functions[ARRAYSIZE(function_names)] = {};
-        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
-
-        using zw_raise_exception_fn = NTSTATUS(__stdcall*)(PEXCEPTION_RECORD, PCONTEXT, BOOLEAN);
-        zw_raise_exception_fn zw_raise_exception = reinterpret_cast<zw_raise_exception_fn>(functions[0]);
-        if (!zw_raise_exception) {
-            return false;
-        }
-
-        /* Calculation of minimum threshold for instrution latency */
-        constexpr double threshold = 2.75;
-        bool check_nested = false;
-        if (util::hyper_x() == HYPERV_HOST) {
-            vma_debug("TIMER: Hyper-V detected, running nested checks");
-            check_nested = true;
-        }
-
-        bool serialize_available = cpu::is_intel();
-        if (serialize_available) {
-            /* SERIALIZE requires Ice Lake or newer */
-            u32 l7_eax = 0, l7_ebx = 0, l7_ecx = 0, l7_edx = 0;
-            cpu::cpuid(l7_eax, l7_ebx, l7_ecx, l7_edx, cpu::leaf::ext_features, 0);
-            if (!(l7_edx & (1u << 14))) {
-                serialize_available = false;
+        static const vmaware_technique timer_result = []() -> vmaware_technique {
+            if (util::is_x86_process_on_arm()) {
+                vma_debug("TIMER: Running inside a binary translation layer");
+                return false;
             }
-        }
 
-        VMAWARE_CONSTEXPR const u32 ct_seed = timer::config::get_seed();
-        const size_t batch_size = timer::config::generate_batch_size(ct_seed);
+            const GROUP_AFFINITY trigger_affinity = timer::scheduler::get_mask(true);
+            static GROUP_AFFINITY counter_affinity{};
+            counter_affinity = timer::scheduler::get_mask(false);
 
-        std::vector<timer::timer_tick_t> vm_samples(batch_size), ref_samples(batch_size); /* pre page-fault MMU, we won't warm-up cpuid samples for the P-states intentionally */
-        std::vector<timer::timer_tick_t> api_samples(batch_size), db_samples(batch_size);
-
-        /* Pre-reserve active sample vectors to eliminate ANY dynamic heap allocations inside the trial loop */
-        std::vector<timer::timer_tick_t> active_vm_samples, active_ref_samples;
-        std::vector<timer::timer_tick_t> active_api_samples, active_db_samples;
-        if (!check_nested) {
-            active_vm_samples.reserve(batch_size);
-            active_ref_samples.reserve(batch_size);
-        }
-        active_api_samples.reserve(batch_size);
-        active_db_samples.reserve(batch_size);
-
-        /* Lock the memory for the samples to prevent soft #PF during timing if permissions are enough */
-        const bool vm_samples_locked = VirtualLock(vm_samples.data(), batch_size * sizeof(timer::timer_tick_t));
-        const bool ref_samples_locked = VirtualLock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
-        const bool api_samples_locked = VirtualLock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
-        const bool db_samples_locked = VirtualLock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
-
-        static const HANDLE current_thread = reinterpret_cast<HANDLE>(-2LL);
-        const HANDLE current_process = reinterpret_cast<HANDLE>(-1LL);
-
-        GROUP_AFFINITY old_affinity{};
-        const DWORD old_process_priority = GetPriorityClass(current_process);
-        const int old_thread_priority = GetThreadPriority(current_thread);
-
-        auto cleanup = [&]() noexcept {
-            SetThreadPriorityBoost(current_thread, FALSE);
-            SetThreadPriority(current_thread, old_thread_priority);
-            SetPriorityClass(current_process, old_process_priority);
-            SetThreadGroupAffinity(current_thread, &old_affinity, nullptr);
-            if (vm_samples_locked) {
-                VirtualUnlock(vm_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+            if (!trigger_affinity.Mask || !counter_affinity.Mask) {
+                return false;
             }
-            if (ref_samples_locked) {
-                VirtualUnlock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+
+            const HMODULE ntdll = memory::get_module(true);
+            if (!ntdll) {
+                return false;
             }
-            if (api_samples_locked) {
-                VirtualUnlock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+
+            constexpr const char* function_names[] = {
+                "ZwRaiseException"
+            };
+            void* functions[ARRAYSIZE(function_names)] = {};
+            memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
+
+            using zw_raise_exception_fn = NTSTATUS(__stdcall*)(PEXCEPTION_RECORD, PCONTEXT, BOOLEAN);
+            zw_raise_exception_fn zw_raise_exception = reinterpret_cast<zw_raise_exception_fn>(functions[0]);
+            if (!zw_raise_exception) {
+                return false;
             }
-            if (db_samples_locked) {
-                VirtualUnlock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+
+            /* Calculation of minimum threshold for instrution latency */
+            constexpr double threshold = 2.75;
+            bool check_nested = false;
+            if (util::hyper_x() == HYPERV_HOST) {
+                vma_debug("TIMER: Hyper-V detected, running nested checks");
+                check_nested = true;
             }
-        };
 
-        /* Prepare threads for check */
-        SetThreadGroupAffinity(current_thread, &trigger_affinity, &old_affinity);
-        SetPriorityClass(current_process, ABOVE_NORMAL_PRIORITY_CLASS); /* ABOVE_NORMAL_PRIORITY_CLASS + THREAD_PRIORITY_HIGHEST = 12 base priority */
-        SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST);
-        SetThreadPriorityBoost(current_thread, TRUE); /* Disable dynamic thread priority adjustments by Windows, not turbo boosts by the hardware itself */
-
-        static timer::cache_state state;
-        static_assert(alignof(timer::cache_state) >= 64, "timer::cache_state must be aligned to 64 bytes to prevent cache-line thrashing (false sharing).");
-        static_assert(std::is_standard_layout<timer::cache_state>::value, "timer::cache_state must be standard layout for predictable memory offsets.");
-
-        state.counter = 0;
-        state.start_test.store(false, std::memory_order_relaxed);
-        state.test_done.store(false, std::memory_order_relaxed);
-
-        /* Our software clock */
-        auto counter_thread = []() noexcept -> void {
-            SetThreadGroupAffinity(current_thread, &counter_affinity, nullptr);
-            SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST); /* Decrease chance of being rescheduled */
-            SetThreadPriorityBoost(current_thread, TRUE); /* Disable dynamic boosts */
-
-            timer::timer_tick_t local_counter = state.counter;
-
-            /* Better than calling incq in inline asm, as this forces standard increment cache behavior */
-            #define TICK8() \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter; \
-                local_counter++; state.counter = local_counter;
-
-            #define TICK64() \
-                TICK8(); TICK8(); TICK8(); TICK8(); \
-                TICK8(); TICK8(); TICK8(); TICK8();
-
-            #define TICK512() \
-                TICK64(); TICK64(); TICK64(); TICK64(); \
-                TICK64(); TICK64(); TICK64(); TICK64();
-
-            while (!state.start_test.load(std::memory_order_acquire)) {}
-
-            while (!state.test_done.load(std::memory_order_relaxed)) {
-                TICK512(); TICK512(); TICK512(); TICK512();
-                TICK512(); TICK512(); TICK512(); TICK512();
-            }
-            #undef TICK512
-            #undef TICK64
-            #undef TICK8
-        };
-
-        /* To isolate the SEH frame from C++ unwinding scopes */
-        struct exception_handler {
-            static VMAWARE_NOINLINE void execute_db() noexcept {
-                __try {
-                #if (VMAWARE_MSVC)
-                    const auto eflags = __readeflags();
-                    __writeeflags(eflags | 0x100);
-                    __nop();
-                #elif (VMAWARE_X86_64)
-                    __asm__ volatile (
-                        "pushfq \n\t"
-                        "orq $0x100, (%%rsp) \n\t"
-                        "popfq \n\t"
-                        "nop \n\t"
-                        :
-                    :
-                        : "cc", "memory"
-                    );
-                #else
-                    __asm__ volatile (
-                        "pushfl \n\t"
-                        "orl $0x100, (%%esp) \n\t"
-                        "popfl \n\t"
-                        "nop \n\t"
-                        :
-                    :
-                        : "cc", "memory"
-                    );
-                #endif
-                }
-                __except (
-                    GetExceptionCode() == EXCEPTION_SINGLE_STEP
-                    ? (GetExceptionInformation()->ContextRecord->EFlags &= ~0x100U, EXCEPTION_CONTINUE_EXECUTION)
-                    : EXCEPTION_CONTINUE_SEARCH
-                    ) {
+            bool serialize_available = cpu::is_intel();
+            if (serialize_available) {
+                /* SERIALIZE requires Ice Lake or newer */
+                u32 l7_eax = 0, l7_ebx = 0, l7_ecx = 0, l7_edx = 0;
+                cpu::cpuid(l7_eax, l7_ebx, l7_ecx, l7_edx, cpu::leaf::ext_features, 0);
+                if (!(l7_edx & (1u << 14))) {
+                    serialize_available = false;
                 }
             }
 
-            /* decltype to resolve the local function pointer type without template keywords */
-            static VMAWARE_NO_CFG void nt_raise_exception(
-                decltype(zw_raise_exception) zw_raise,
-                EXCEPTION_RECORD* er,
-                CONTEXT* ctx,
-                volatile bool* flag
-            ) noexcept {
-                __try {
-                #if (VMAWARE_X86_64)
-                    RtlCaptureContext(ctx);
-                #else
-                    /* On x86_32, RtlCaptureContext is unreliable under clang-cl with FPO */
-                    ctx->ContextFlags = CONTEXT_CONTROL;
-                    uintptr_t current_esp = 0;
-                    uintptr_t current_ebp = 0;
-                    uintptr_t current_eip = 0;
-                    u32 current_cs = 0;
-                    u32 current_ss = 0;
-                    u32 current_eflags = 0;
+            VMAWARE_CONSTEXPR const u32 ct_seed = timer::config::get_seed();
+            const size_t batch_size = timer::config::generate_batch_size(ct_seed);
 
-                    #if (VMAWARE_MSVC) /* This matches clang-cl on purpose */
-                        __asm {
-                            mov current_esp, esp
-                            mov current_ebp, ebp
+            std::vector<timer::timer_tick_t> vm_samples(batch_size), ref_samples(batch_size); /* pre page-fault MMU, we won't warm-up cpuid samples for the P-states intentionally */
+            std::vector<timer::timer_tick_t> api_samples(batch_size), db_samples(batch_size);
 
-                            xor eax, eax
-                            mov ax, cs
-                            mov current_cs, eax
-
-                            xor eax, eax
-                            mov ax, ss
-                            mov current_ss, eax
-
-                            call get_eip
-                            get_eip :
-                            pop eax
-                                mov current_eip, eax
-                        }
-                        current_eflags = static_cast<u32>(__readeflags());
-                    #else
-                        __asm__ volatile(
-                            "movl %%esp, %0 \n\t"
-                            "movl %%ebp, %1 \n\t"
-                            "mov %%cs, %2 \n\t"
-                            "mov %%ss, %3 \n\t"
-                            "pushfl \n\t"
-                            "popl %4 \n\t"
-                            "call 1f \n\t"
-                            "1: \n\t"
-                            "popl %5 \n\t"
-                            : "=r"(current_esp), "=r"(current_ebp), "=r"(current_cs), "=r"(current_ss), "=r"(current_eflags), "=r"(current_eip)
-                         );
-                    #endif
-
-                    ctx->Esp = current_esp;
-                    ctx->Ebp = current_ebp;
-                    ctx->Eip = current_eip;
-                    ctx->SegCs = current_cs;
-                    ctx->SegSs = current_ss;
-                    ctx->EFlags = current_eflags;
-                #endif
-                    * flag = true;
-                    zw_raise(er, ctx, 1);
-                }
-                __except (
-                    GetExceptionCode() == EXCEPTION_SINGLE_STEP
-                    ? EXCEPTION_EXECUTE_HANDLER
-                    : EXCEPTION_CONTINUE_SEARCH
-                    ) {
-                }
-            }
-        };
-
-        /* Independent multi-trial state initialization */
-        constexpr int trials = 5;
-        constexpr size_t local_max_attempts = 1000 * trials;
-        timer::timer_tick_t best_cpuid_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-        timer::timer_tick_t best_ref_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-        timer::timer_tick_t best_api_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-        timer::timer_tick_t best_db_l = (std::numeric_limits<timer::timer_tick_t>::max)();
-
-        std::thread t1(counter_thread);
-        state.start_test.store(true, std::memory_order_release);
-
-        /* Cache and CPU scheduler warm-up won't affect anything in the measurement loop, so ramp up frequency/P-states to a high non-AVX Turbo/P-state without vmexits */
-        timer::engine::warmup_cpu(serialize_available);
-
-        /*
-         * state is a static local variable, so accessing state.counter directly requires the compiler to resolve its address using RIP-relative addressing or base-plus-displacement addressing on every single iteration
-         * depending on the compiler's O level and the presence of PIC/PIE, this can introduce small addressing calculations inside the loop, so by assigning the address to a local pointer outside the loop,
-         * we encourage the compiler to load this absolute pointer into a CPU register BEFORE the loop starts so at the end it translates to a simple mov
-        */
-        const volatile timer::timer_tick_t* const counter_ptr = &state.counter;
-
-        for (int trial = 0; trial < trials; ++trial) {
-            size_t valid = 0;
-            size_t invalid = 0;
-
-            /* Inside the timing windows, there must be zero memory output (no stack arrays can be written to), zero conditional branches and zero stack spilling (no register push/pops) */
+            /* Pre-reserve active sample vectors to eliminate ANY dynamic heap allocations inside the trial loop */
+            std::vector<timer::timer_tick_t> active_vm_samples, active_ref_samples;
+            std::vector<timer::timer_tick_t> active_api_samples, active_db_samples;
             if (!check_nested) {
-                if (serialize_available) {
-                    while (valid < batch_size && invalid < local_max_attempts) {
-                        /* cpuid and serialize/lfence interpolated so that any turbo boost, thermal throttling, speculation (for the loop overhead itself, not for the serializing instructions), etc affects samples equally */
-                        timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
+                active_vm_samples.reserve(batch_size);
+                active_ref_samples.reserve(batch_size);
+            }
+            active_api_samples.reserve(batch_size);
+            active_db_samples.reserve(batch_size);
 
-                        /* This is done as a counter to both legitimate and malicious hypervisors interrupts that may pause the counter thread while we measure */
-                        sync = *counter_ptr;
-                        while (*counter_ptr == sync); /* Infer if counter got enough quantum momentum (so its currently scheduled) */
+            /* Lock the memory for the samples to prevent soft #PF during timing if permissions are enough */
+            const bool vm_samples_locked = VirtualLock(vm_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+            const bool ref_samples_locked = VirtualLock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+            const bool api_samples_locked = VirtualLock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+            const bool db_samples_locked = VirtualLock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
 
-                        /*
-                         * SERIALIZE/LFENCE check is before CPUID on purpose, so that possible pauses when cpuid is executed do not affect SERIALIZE/LFENCE too. The hv needs to wait for cpuid to pause the thread
-                         * the amount of instructions (8 in case of LFENCE) are enough for the Cross-Core/Cross-CCD MESI RFO cache bounce in the data race so that the counter thread sees an increment
-                         */
-                        sync = *counter_ptr;
-                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                        while (*counter_ptr == sync); /* Fastest busy-waiting strategy, PAUSE can conditionally exit, calling APIs like SwitchToThread() would be even worse */
+            static const HANDLE current_thread = reinterpret_cast<HANDLE>(-2LL);
+            const HANDLE current_process = reinterpret_cast<HANDLE>(-1LL);
 
-                        r_pre = *counter_ptr;
-                        std::atomic_signal_fence(std::memory_order_acq_rel);
-                        _serialize();
-                        std::atomic_signal_fence(std::memory_order_acq_rel);
-                        r_post = *counter_ptr;
+            GROUP_AFFINITY old_affinity{};
+            const DWORD old_process_priority = GetPriorityClass(current_process);
+            const int old_thread_priority = GetThreadPriority(current_thread);
 
-                        sync = *counter_ptr;
-                        while (*counter_ptr == sync); /* sync to our counter tick again by spam hitting L3 */
-                        sync = *counter_ptr;
-                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                        while (*counter_ptr == sync); /* and again */
+            auto cleanup = [&]() noexcept {
+                SetThreadPriorityBoost(current_thread, FALSE);
+                SetThreadPriority(current_thread, old_thread_priority);
+                SetPriorityClass(current_process, old_process_priority);
+                SetThreadGroupAffinity(current_thread, &old_affinity, nullptr);
+                if (vm_samples_locked) {
+                    VirtualUnlock(vm_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+                }
+                if (ref_samples_locked) {
+                    VirtualUnlock(ref_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+                }
+                if (api_samples_locked) {
+                    VirtualUnlock(api_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+                }
+                if (db_samples_locked) {
+                    VirtualUnlock(db_samples.data(), batch_size * sizeof(timer::timer_tick_t));
+                }
+            };
 
-                        v_pre = *counter_ptr;
-                        std::atomic_signal_fence(std::memory_order_seq_cst); /* _ReadWriteBarrier() aka dont emit runtime fences */
-                    #if (VMAWARE_GCC || VMAWARE_CLANG)  
-                        size_t a = 0;
-                        size_t b = 0, c = 0, d = 0;
+            /* Prepare threads for check */
+            SetThreadGroupAffinity(current_thread, &trigger_affinity, &old_affinity);
+            SetPriorityClass(current_process, ABOVE_NORMAL_PRIORITY_CLASS); /* ABOVE_NORMAL_PRIORITY_CLASS + THREAD_PRIORITY_HIGHEST = 12 base priority */
+            SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST);
+            SetThreadPriorityBoost(current_thread, TRUE); /* Disable dynamic thread priority adjustments by Windows, not turbo boosts by the hardware itself */
+
+            static timer::cache_state state;
+            static_assert(alignof(timer::cache_state) >= 64, "timer::cache_state must be aligned to 64 bytes to prevent cache-line thrashing (false sharing).");
+            static_assert(std::is_standard_layout<timer::cache_state>::value, "timer::cache_state must be standard layout for predictable memory offsets.");
+
+            state.counter = 0;
+            state.start_test.store(false, std::memory_order_relaxed);
+            state.test_done.store(false, std::memory_order_relaxed);
+
+            /* Our software clock */
+            auto counter_thread = []() noexcept -> void {
+                SetThreadGroupAffinity(current_thread, &counter_affinity, nullptr);
+                SetThreadPriority(current_thread, THREAD_PRIORITY_HIGHEST); /* Decrease chance of being rescheduled */
+                SetThreadPriorityBoost(current_thread, TRUE); /* Disable dynamic boosts */
+
+                timer::timer_tick_t local_counter = state.counter;
+
+                /* Better than calling incq in inline asm, as this forces standard increment cache behavior */
+                #define TICK8() \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter; \
+                    local_counter++; state.counter = local_counter;
+
+                #define TICK64() \
+                    TICK8(); TICK8(); TICK8(); TICK8(); \
+                    TICK8(); TICK8(); TICK8(); TICK8();
+
+                #define TICK512() \
+                    TICK64(); TICK64(); TICK64(); TICK64(); \
+                    TICK64(); TICK64(); TICK64(); TICK64();
+
+                while (!state.start_test.load(std::memory_order_acquire)) {}
+
+                while (!state.test_done.load(std::memory_order_relaxed)) {
+                    TICK512(); TICK512(); TICK512(); TICK512();
+                    TICK512(); TICK512(); TICK512(); TICK512();
+                }
+                #undef TICK512
+                #undef TICK64
+                #undef TICK8
+            };
+
+            /* To isolate the SEH frame from C++ unwinding scopes */
+            struct exception_handler {
+                static VMAWARE_NOINLINE void execute_db() noexcept {
+                    __try {
+                    #if (VMAWARE_MSVC)
+                        const auto eflags = __readeflags();
+                        __writeeflags(eflags | 0x100);
+                        __nop();
+                    #elif (VMAWARE_X86_64)
                         __asm__ volatile (
-                            "cpuid"
-                            : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
+                            "pushfq \n\t"
+                            "orq $0x100, (%%rsp) \n\t"
+                            "popfq \n\t"
+                            "nop \n\t"
+                            :
+                        :
+                            : "cc", "memory"
                         );
-                    #else   
-                        int dummy[4];
-                        __cpuid(dummy, 0);
+                    #else
+                        __asm__ volatile (
+                            "pushfl \n\t"
+                            "orl $0x100, (%%esp) \n\t"
+                            "popfl \n\t"
+                            "nop \n\t"
+                            :
+                        :
+                            : "cc", "memory"
+                        );
                     #endif
-                        std::atomic_signal_fence(std::memory_order_seq_cst);
-                        v_post = *counter_ptr;
-
-                        /* We dont filter by cycles spent here (for example by querying thread cycle time) because the kernel would use TSC and the point of this function is to not use TSC or any other clock */
-                        if (v_post > v_pre && r_post > r_pre) {
-                            vm_samples[valid] = v_post - v_pre;
-                            ref_samples[valid] = r_post - r_pre;
-                            valid++;
-                        }
-                        else {
-                            invalid++;
-                        }
-
-                        /* Burn cycles executing a random number of instructions in each loop iteration, so that the hypervisor doesn't know when to pause the counter thread */
-                        timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                    }
+                    __except (
+                        GetExceptionCode() == EXCEPTION_SINGLE_STEP
+                        ? (GetExceptionInformation()->ContextRecord->EFlags &= ~0x100U, EXCEPTION_CONTINUE_EXECUTION)
+                        : EXCEPTION_CONTINUE_SEARCH
+                        ) {
                     }
                 }
-                else {
-                    while (valid < batch_size && invalid < local_max_attempts) {
-                        /* This block's logic is the same as above but using LFENCE instead of SERIALIZE, read code comments above */
-                        timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
 
-                        sync = *counter_ptr;
-                        while (*counter_ptr == sync);
-                        sync = *counter_ptr;
-                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                        while (*counter_ptr == sync);
+                /* decltype to resolve the local function pointer type without template keywords */
+                static VMAWARE_NO_CFG void nt_raise_exception(
+                    decltype(zw_raise_exception) zw_raise,
+                    EXCEPTION_RECORD* er,
+                    CONTEXT* ctx,
+                    volatile bool* flag
+                ) noexcept {
+                    __try {
+                    #if (VMAWARE_X86_64)
+                        RtlCaptureContext(ctx);
+                    #else
+                        /* On x86_32, RtlCaptureContext is unreliable under clang-cl with FPO */
+                        ctx->ContextFlags = CONTEXT_CONTROL;
+                        uintptr_t current_esp = 0;
+                        uintptr_t current_ebp = 0;
+                        uintptr_t current_eip = 0;
+                        u32 current_cs = 0;
+                        u32 current_ss = 0;
+                        u32 current_eflags = 0;
 
-                        r_pre = *counter_ptr;
-                        std::atomic_signal_fence(std::memory_order_acq_rel);
-                        _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
-                        _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
-                        std::atomic_signal_fence(std::memory_order_acq_rel);
-                        r_post = *counter_ptr;
+                        #if (VMAWARE_MSVC) /* This matches clang-cl on purpose */
+                            __asm {
+                                mov current_esp, esp
+                                mov current_ebp, ebp
 
-                        sync = *counter_ptr;
-                        while (*counter_ptr == sync);
-                        sync = *counter_ptr;
-                        VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                        while (*counter_ptr == sync);
+                                xor eax, eax
+                                mov ax, cs
+                                mov current_cs, eax
 
-                        v_pre = *counter_ptr;
-                        std::atomic_signal_fence(std::memory_order_seq_cst);
-                    #if (VMAWARE_GCC || VMAWARE_CLANG)
-                        size_t a = 0;
-                        size_t b = 0, c = 0, d = 0;
-                        __asm__ volatile (
-                            "cpuid"
-                            : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
-                        );
-                        #else   
-                        int dummy[4];
-                        __cpuid(dummy, 0);
+                                xor eax, eax
+                                mov ax, ss
+                                mov current_ss, eax
+
+                                call get_eip
+                                get_eip :
+                                pop eax
+                                    mov current_eip, eax
+                            }
+                            current_eflags = static_cast<u32>(__readeflags());
+                        #else
+                            __asm__ volatile(
+                                "movl %%esp, %0 \n\t"
+                                "movl %%ebp, %1 \n\t"
+                                "mov %%cs, %2 \n\t"
+                                "mov %%ss, %3 \n\t"
+                                "pushfl \n\t"
+                                "popl %4 \n\t"
+                                "call 1f \n\t"
+                                "1: \n\t"
+                                "popl %5 \n\t"
+                                : "=r"(current_esp), "=r"(current_ebp), "=r"(current_cs), "=r"(current_ss), "=r"(current_eflags), "=r"(current_eip)
+                             );
+                        #endif
+
+                        ctx->Esp = current_esp;
+                        ctx->Ebp = current_ebp;
+                        ctx->Eip = current_eip;
+                        ctx->SegCs = current_cs;
+                        ctx->SegSs = current_ss;
+                        ctx->EFlags = current_eflags;
                     #endif
-                        std::atomic_signal_fence(std::memory_order_seq_cst);
-                        v_post = *counter_ptr;
-
-                        if (v_post > v_pre && r_post > r_pre) {
-                            vm_samples[valid] = v_post - v_pre;
-                            ref_samples[valid] = r_post - r_pre;
-                            valid++;
-                        }
-                        else {
-                            invalid++;
-                        }
-
-                        timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                        * flag = true;
+                        zw_raise(er, ctx, 1);
                     }
+                    __except (
+                        GetExceptionCode() == EXCEPTION_SINGLE_STEP
+                        ? EXCEPTION_EXECUTE_HANDLER
+                        : EXCEPTION_CONTINUE_SEARCH
+                        ) {
+                    }
+                }
+            };
+
+            /* Independent multi-trial state initialization */
+            constexpr int trials = 5;
+            constexpr size_t local_max_attempts = 1000 * trials;
+            timer::timer_tick_t best_cpuid_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+            timer::timer_tick_t best_ref_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+            timer::timer_tick_t best_api_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+            timer::timer_tick_t best_db_l = (std::numeric_limits<timer::timer_tick_t>::max)();
+
+            std::thread t1(counter_thread);
+            state.start_test.store(true, std::memory_order_release);
+
+            /* Cache and CPU scheduler warm-up won't affect anything in the measurement loop, so ramp up frequency/P-states to a high non-AVX Turbo/P-state without vmexits */
+            timer::engine::warmup_cpu(serialize_available);
+
+            /*
+             * state is a static local variable, so accessing state.counter directly requires the compiler to resolve its address using RIP-relative addressing or base-plus-displacement addressing on every single iteration
+             * depending on the compiler's O level and the presence of PIC/PIE, this can introduce small addressing calculations inside the loop, so by assigning the address to a local pointer outside the loop,
+             * we encourage the compiler to load this absolute pointer into a CPU register BEFORE the loop starts so at the end it translates to a simple mov
+            */
+            const volatile timer::timer_tick_t* const counter_ptr = &state.counter;
+
+            for (int trial = 0; trial < trials; ++trial) {
+                size_t valid = 0;
+                size_t invalid = 0;
+
+                /* Inside the timing windows, there must be zero memory output (no stack arrays can be written to), zero conditional branches and zero stack spilling (no register push/pops) */
+                if (!check_nested) {
+                    if (serialize_available) {
+                        while (valid < batch_size && invalid < local_max_attempts) {
+                            /* cpuid and serialize/lfence interpolated so that any turbo boost, thermal throttling, speculation (for the loop overhead itself, not for the serializing instructions), etc affects samples equally */
+                            timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
+
+                            /* This is done as a counter to both legitimate and malicious hypervisors interrupts that may pause the counter thread while we measure */
+                            sync = *counter_ptr;
+                            while (*counter_ptr == sync); /* Infer if counter got enough quantum momentum (so its currently scheduled) */
+
+                            /*
+                             * SERIALIZE/LFENCE check is before CPUID on purpose, so that possible pauses when cpuid is executed do not affect SERIALIZE/LFENCE too. The hv needs to wait for cpuid to pause the thread
+                             * the amount of instructions (8 in case of LFENCE) are enough for the Cross-Core/Cross-CCD MESI RFO cache bounce in the data race so that the counter thread sees an increment
+                             */
+                            sync = *counter_ptr;
+                            VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                            while (*counter_ptr == sync); /* Fastest busy-waiting strategy, PAUSE can conditionally exit, calling APIs like SwitchToThread() would be even worse */
+
+                            r_pre = *counter_ptr;
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            _serialize();
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            r_post = *counter_ptr;
+
+                            sync = *counter_ptr;
+                            while (*counter_ptr == sync); /* sync to our counter tick again by spam hitting L3 */
+                            sync = *counter_ptr;
+                            VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                            while (*counter_ptr == sync); /* and again */
+
+                            v_pre = *counter_ptr;
+                            std::atomic_signal_fence(std::memory_order_seq_cst); /* _ReadWriteBarrier() aka dont emit runtime fences */
+                        #if (VMAWARE_GCC || VMAWARE_CLANG)
+                            size_t a = 0;
+                            size_t b = 0, c = 0, d = 0;
+                            __asm__ volatile (
+                                "cpuid"
+                                : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
+                            );
+                        #else
+                            int dummy[4];
+                            __cpuid(dummy, 0);
+                        #endif
+                            std::atomic_signal_fence(std::memory_order_seq_cst);
+                            v_post = *counter_ptr;
+
+                            /* We dont filter by cycles spent here (for example by querying thread cycle time) because the kernel would use TSC and the point of this function is to not use TSC or any other clock */
+                            if (v_post > v_pre && r_post > r_pre) {
+                                vm_samples[valid] = v_post - v_pre;
+                                ref_samples[valid] = r_post - r_pre;
+                                valid++;
+                            }
+                            else {
+                                invalid++;
+                            }
+
+                            /* Burn cycles executing a random number of instructions in each loop iteration, so that the hypervisor doesn't know when to pause the counter thread */
+                            timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                        }
+                    }
+                    else {
+                        while (valid < batch_size && invalid < local_max_attempts) {
+                            /* This block's logic is the same as above but using LFENCE instead of SERIALIZE, read code comments above */
+                            timer::timer_tick_t r_pre = 0, r_post = 0, v_pre = 0, v_post = 0, sync = 0;
+
+                            sync = *counter_ptr;
+                            while (*counter_ptr == sync);
+                            sync = *counter_ptr;
+                            VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                            while (*counter_ptr == sync);
+
+                            r_pre = *counter_ptr;
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
+                            _mm_lfence(); _mm_lfence(); _mm_lfence(); _mm_lfence();
+                            std::atomic_signal_fence(std::memory_order_acq_rel);
+                            r_post = *counter_ptr;
+
+                            sync = *counter_ptr;
+                            while (*counter_ptr == sync);
+                            sync = *counter_ptr;
+                            VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                            while (*counter_ptr == sync);
+
+                            v_pre = *counter_ptr;
+                            std::atomic_signal_fence(std::memory_order_seq_cst);
+                        #if (VMAWARE_GCC || VMAWARE_CLANG)
+                            size_t a = 0;
+                            size_t b = 0, c = 0, d = 0;
+                            __asm__ volatile (
+                                "cpuid"
+                                : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
+                            );
+                            #else
+                            int dummy[4];
+                            __cpuid(dummy, 0);
+                        #endif
+                            std::atomic_signal_fence(std::memory_order_seq_cst);
+                            v_post = *counter_ptr;
+
+                            if (v_post > v_pre && r_post > r_pre) {
+                                vm_samples[valid] = v_post - v_pre;
+                                ref_samples[valid] = r_post - r_pre;
+                                valid++;
+                            }
+                            else {
+                                invalid++;
+                            }
+
+                            timer::engine::burn_random_cycles(ct_seed, v_post, r_post);
+                        }
+                    }
+
+                    if (valid > 0) {
+                        /* Discard the unused default-initialized zero-elements */
+                        active_vm_samples.assign(vm_samples.begin(), vm_samples.begin() + valid);
+                        active_ref_samples.assign(ref_samples.begin(), ref_samples.begin() + valid);
+
+                        /* Check for lowest dense cluster with no interrupt spikes, filter noise we can't directly detect (SMIs, NMIs, etc) */
+                        const timer::timer_tick_t cpuid_l = timer::engine::calculate_latency(active_vm_samples);
+                        const timer::timer_tick_t ref_l = timer::engine::calculate_latency(active_ref_samples);
+
+                        /* Record the cleanest/lowest latency observed across the independent trials */
+                        if (cpuid_l < best_cpuid_l) {
+                            best_cpuid_l = cpuid_l;
+                        }
+                        if (ref_l < best_ref_l) {
+                            best_ref_l = ref_l;
+                        }
+                    }
+                }
+
+                valid = 0;
+                invalid = 0;
+
+                /*
+                 * I choose #DB because it forces a L0 to L1 nested vmexit when Hyper-V is running
+                 * L0 must sync the exception bitmap with L1 in order for this to receive pending events, as the CPU always jumps to the hv running on the metal
+                 * VMCB/VMCS public dumps shows Hyper-V intercepts #DB, #AC and #MC
+                 */
+                volatile bool flag = false;
+                alignas(16) CONTEXT ctx {};
+                EXCEPTION_RECORD er{};
+
+                while (valid < batch_size && invalid < local_max_attempts) {
+                    timer::timer_tick_t db_pre = 0, db_post = 0, api_pre = 0, api_post = 0, sync = 0;
+
+                    sync = *counter_ptr;
+                    while (*counter_ptr == sync);
+                    sync = *counter_ptr;
+                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                    while (*counter_ptr == sync);
+
+                    db_pre = *counter_ptr;
+                    std::atomic_signal_fence(std::memory_order_acq_rel);
+                    exception_handler::execute_db();
+                    std::atomic_signal_fence(std::memory_order_acq_rel);
+                    db_post = *counter_ptr;
+
+                    sync = *counter_ptr;
+                    while (*counter_ptr == sync);
+                    sync = *counter_ptr;
+                    VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
+                    while (*counter_ptr == sync);
+
+                    ctx.ContextFlags = CONTEXT_FULL;
+                    er.ExceptionCode = EXCEPTION_SINGLE_STEP;
+                    er.ExceptionFlags = 0;
+
+                    api_pre = *counter_ptr;
+                    std::atomic_signal_fence(std::memory_order_acq_rel);
+                    exception_handler::nt_raise_exception(zw_raise_exception, &er, &ctx, &flag);
+                    std::atomic_signal_fence(std::memory_order_acq_rel);
+                    api_post = *counter_ptr;
+
+                    if (api_post > api_pre && db_post > db_pre) {
+                        api_samples[valid] = api_post - api_pre;
+                        db_samples[valid] = db_post - db_pre;
+                        valid++;
+                    }
+                    else {
+                        invalid++;
+                    }
+
+                    timer::engine::burn_random_cycles(ct_seed, api_post, db_post);
                 }
 
                 if (valid > 0) {
-                    /* Discard the unused default-initialized zero-elements */
-                    active_vm_samples.assign(vm_samples.begin(), vm_samples.begin() + valid);
-                    active_ref_samples.assign(ref_samples.begin(), ref_samples.begin() + valid);
+                    active_api_samples.assign(api_samples.begin(), api_samples.begin() + valid);
+                    active_db_samples.assign(db_samples.begin(), db_samples.begin() + valid);
 
-                    /* Check for lowest dense cluster with no interrupt spikes, filter noise we can't directly detect (SMIs, NMIs, etc) */
-                    const timer::timer_tick_t cpuid_l = timer::engine::calculate_latency(active_vm_samples);
-                    const timer::timer_tick_t ref_l = timer::engine::calculate_latency(active_ref_samples);
+                    const timer::timer_tick_t api_l = timer::engine::calculate_latency(active_api_samples);
+                    const timer::timer_tick_t db_l = timer::engine::calculate_latency(active_db_samples);
 
-                    /* Record the cleanest/lowest latency observed across the independent trials */
-                    if (cpuid_l < best_cpuid_l) {
-                        best_cpuid_l = cpuid_l;
+                    if (api_l < best_api_l) {
+                        best_api_l = api_l;
                     }
-                    if (ref_l < best_ref_l) {
-                        best_ref_l = ref_l;
+                    if (db_l < best_db_l) {
+                        best_db_l = db_l;
                     }
                 }
             }
 
-            valid = 0;
-            invalid = 0;
+            state.test_done.store(true, std::memory_order_release);
+            t1.join();
 
-            /*
-             * I choose #DB because it forces a L0 to L1 nested vmexit when Hyper-V is running
-             * L0 must sync the exception bitmap with L1 in order for this to receive pending events, as the CPU always jumps to the hv running on the metal
-             * VMCB/VMCS public dumps shows Hyper-V intercepts #DB, #AC and #MC
-             */
-            volatile bool flag = false;
-            alignas(16) CONTEXT ctx {};
-            EXCEPTION_RECORD er{};
+            cleanup();
 
-            while (valid < batch_size && invalid < local_max_attempts) {
-                timer::timer_tick_t db_pre = 0, db_post = 0, api_pre = 0, api_post = 0, sync = 0;
+            constexpr auto uninitialized_tick = (std::numeric_limits<timer::timer_tick_t>::max)();
+            const bool invalid_measurement = (!check_nested && best_ref_l == uninitialized_tick && best_cpuid_l == uninitialized_tick) || (best_db_l == uninitialized_tick && best_api_l == uninitialized_tick);
 
-                sync = *counter_ptr;
-                while (*counter_ptr == sync);
-                sync = *counter_ptr;
-                VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                while (*counter_ptr == sync);
+            bool hypervisor_detected = false;
 
-                db_pre = *counter_ptr;
-                std::atomic_signal_fence(std::memory_order_acq_rel);
-                exception_handler::execute_db();
-                std::atomic_signal_fence(std::memory_order_acq_rel);
-                db_post = *counter_ptr;
+            /* Analyze instruction latency results and report exactly what VMAware found */
+            if (!invalid_measurement) {
+                if (!check_nested) {
+                    /* VMM = Time spent in hypervisor and bare metal; nVMM = Time spent in bare metal */
+                    const double latency_ratio = best_ref_l ? (double)best_cpuid_l / (double)best_ref_l : 0;
+                    vma_debug("TIMER: CPU supports SERIALIZE: ", serialize_available);
+                    vma_debug("TIMER: Instruction > VMM -> ", best_cpuid_l, " | nVMM -> ", best_ref_l, " | Ratio -> ", latency_ratio);
 
-                sync = *counter_ptr;
-                while (*counter_ptr == sync);
-                sync = *counter_ptr;
-                VMAWARE_PREFETCH(counter_ptr, _MM_HINT_T0);
-                while (*counter_ptr == sync);
-
-                ctx.ContextFlags = CONTEXT_FULL;
-                er.ExceptionCode = EXCEPTION_SINGLE_STEP;
-                er.ExceptionFlags = 0;
-
-                api_pre = *counter_ptr;
-                std::atomic_signal_fence(std::memory_order_acq_rel);
-                exception_handler::nt_raise_exception(zw_raise_exception, &er, &ctx, &flag);
-                std::atomic_signal_fence(std::memory_order_acq_rel);
-                api_post = *counter_ptr;
-
-                if (api_post > api_pre && db_post > db_pre) {
-                    api_samples[valid] = api_post - api_pre;
-                    db_samples[valid] = db_post - db_pre;
-                    valid++;
-                }
-                else {
-                    invalid++;
+                    /* High latency can occur even with CPUID interception disabled if vCPU pinning is not 1:1, thus detecting the hypervisor, as this is a cache-based counter */
+                    if (latency_ratio >= threshold) {
+                        vma_debug("TIMER: Detected #VMEXIT latency");
+                        hypervisor_detected = true;
+                    }
+                    else if (best_cpuid_l >= 12000 || best_ref_l >= 12000) { /* If latency is abnormally high, it means something was spamming interrupts */
+                        vma_debug("TIMER: Detected artificial IPI delivery to timing threads");
+                        hypervisor_detected = true;
+                    }
                 }
 
-                timer::engine::burn_random_cycles(ct_seed, api_post, db_post);
-            }
+                const double exception_ratio = best_db_l ? (double)best_db_l / (double)best_api_l : 0.0;
+                vma_debug("TIMER: Exception > VMM -> ", best_db_l, " | nVMM -> ", best_api_l, " | Ratio -> ", exception_ratio);
 
-            if (valid > 0) {
-                active_api_samples.assign(api_samples.begin(), api_samples.begin() + valid);
-                active_db_samples.assign(db_samples.begin(), db_samples.begin() + valid);
-
-                const timer::timer_tick_t api_l = timer::engine::calculate_latency(active_api_samples);
-                const timer::timer_tick_t db_l = timer::engine::calculate_latency(active_db_samples);
-
-                if (api_l < best_api_l) {
-                    best_api_l = api_l;
-                }
-                if (db_l < best_db_l) {
-                    best_db_l = db_l;
-                }
-            }
-        }
-
-        state.test_done.store(true, std::memory_order_release);
-        t1.join();
-
-        cleanup();
-
-        constexpr auto uninitialized_tick = (std::numeric_limits<timer::timer_tick_t>::max)();
-        const bool invalid_measurement = (!check_nested && best_ref_l == uninitialized_tick && best_cpuid_l == uninitialized_tick) || (best_db_l == uninitialized_tick && best_api_l == uninitialized_tick);
-
-        bool hypervisor_detected = false;
-
-        /* Analyze instruction latency results and report exactly what VMAware found */
-        if (!invalid_measurement) {
-            if (!check_nested) {
-                /* VMM = Time spent in hypervisor and bare metal; nVMM = Time spent in bare metal */
-                const double latency_ratio = best_ref_l ? (double)best_cpuid_l / (double)best_ref_l : 0;
-                vma_debug("TIMER: CPU supports SERIALIZE: ", serialize_available);
-                vma_debug("TIMER: Instruction > VMM -> ", best_cpuid_l, " | nVMM -> ", best_ref_l, " | Ratio -> ", latency_ratio);
-
-                /* High latency can occur even with CPUID interception disabled if vCPU pinning is not 1:1, thus detecting the hypervisor, as this is a cache-based counter */
-                if (latency_ratio >= threshold) {
-                    vma_debug("TIMER: Detected #VMEXIT latency");
-                    hypervisor_detected = true;
-                }
-                else if (best_cpuid_l >= 12000 || best_ref_l >= 12000) { /* If latency is abnormally high, it means something was spamming interrupts */
-                    vma_debug("TIMER: Detected artificial IPI delivery to timing threads");
+                if (exception_ratio >= 2.5) {
+                    vma_debug("TIMER: Detected #DB interception latency");
                     hypervisor_detected = true;
                 }
             }
 
-            const double exception_ratio = best_db_l ? (double)best_db_l / (double)best_api_l : 0.0;
-            vma_debug("TIMER: Exception > VMM -> ", best_db_l, " | nVMM -> ", best_api_l, " | Ratio -> ", exception_ratio);
-
-            if (exception_ratio >= 2.5) {
-                vma_debug("TIMER: Detected #DB interception latency");
-                hypervisor_detected = true;
+            if (hypervisor_detected) {
+                return true;
             }
-        }
+            return false;
+        }();
 
-        return hypervisor_detected;
-    #endif
+        return timer_result;
+    #else
         return false;
+    #endif
     }
 #endif
 
@@ -8195,7 +5627,7 @@ public:
      * @category Linux
      * @implements VM::SYSTEMD
      */
-    [[nodiscard]] static bool systemd_virt() {
+    [[nodiscard]] static vmaware_technique systemd_virt() {
         if (!(util::exists("/usr/bin/systemd-detect-virt") || util::exists("/bin/systemd-detect-virt"))) {
             vma_debug("SYSTEMD: ", "binary doesn't exist");
             return false;
@@ -8219,7 +5651,7 @@ public:
      * @category Linux
      * @implements VM::CVENDOR
      */
-    [[nodiscard]] static bool chassis_vendor() {
+    [[nodiscard]] static vmaware_technique chassis_vendor() {
         const char* vendor_file = "/sys/devices/virtual/dmi/id/chassis_vendor";
 
         if (!util::exists(vendor_file)) {
@@ -8244,7 +5676,7 @@ public:
      * @category Linux
      * @implements VM::CTYPE
      */
-    [[nodiscard]] static bool chassis_type() {
+    [[nodiscard]] static vmaware_technique chassis_type() {
         const char* chassis = "/sys/devices/virtual/dmi/id/chassis_type";
 
         if (util::exists(chassis)) {
@@ -8267,7 +5699,7 @@ public:
      * @category Linux
      * @implements VM::DOCKERENV
      */
-    [[nodiscard]] static bool dockerenv() {
+    [[nodiscard]] static vmaware_technique dockerenv() {
         if (util::exists("/.dockerenv") || util::exists("/.dockerinit")) {
             return core::add(brand_enum::DOCKER);
         }
@@ -8282,7 +5714,7 @@ public:
      * @warning Permissions required
      * @implements VM::DMIDECODE
      */
-    [[nodiscard]] static bool dmidecode() {
+    [[nodiscard]] static vmaware_technique dmidecode() {
         auto is_admin = []() -> bool {
             return geteuid() == 0;
         };
@@ -8375,22 +5807,22 @@ public:
      * @category Linux
      * @implements VM::MAC
      */
-    [[nodiscard]] static bool mac_address_check() {
+    [[nodiscard]] static vmaware_technique mac_address_check() {
         struct fdguard {
             int fd;
             explicit fdguard(int fd = -1) : fd(fd) {}
-            ~fdguard() { 
-                if (fd != -1) { 
-                    ::close(fd); 
-                } 
+            ~fdguard() {
+                if (fd != -1) {
+                    ::close(fd);
+                }
             }
-            int get() const { 
-                return fd; 
+            int get() const {
+                return fd;
             }
-            int release() { 
-                const int tmp = fd; 
-                fd = -1; 
-                return tmp; 
+            int release() {
+                const int tmp = fd;
+                fd = -1;
+                return tmp;
             }
         };
 
@@ -8468,16 +5900,16 @@ public:
         if (prefix == VBOX) {
             return core::add(brand_enum::VBOX);
         }
-        
+
         if (prefix == VMW1 || prefix == VMW2
             || prefix == VMW3 || prefix == VMW4) {
             return core::add(brand_enum::VMWARE);
         }
-        
+
         if (prefix == XEN) {
             return core::add(brand_enum::XEN);
         }
-        
+
         if (prefix == PAR) {
             return core::add(brand_enum::PARALLELS);
         }
@@ -8492,7 +5924,7 @@ public:
      * @warning Permissions required
      * @implements VM::DMESG
      */
-    [[nodiscard]] static bool dmesg() {
+    [[nodiscard]] static vmaware_technique dmesg() {
         auto is_admin = []() -> bool {
             return geteuid() == 0;
         };
@@ -8589,7 +6021,7 @@ public:
      * @category Linux
      * @implements VM::HWMON
      */
-    [[nodiscard]] static bool hwmon() {
+    [[nodiscard]] static vmaware_technique hwmon() {
         return (!util::exists("/sys/class/hwmon/"));
     }
 
@@ -8599,7 +6031,7 @@ public:
      * @category Linux
      * @implements VM::LINUX_USER_HOST
      */
-    [[nodiscard]] static bool linux_user_host() {
+    [[nodiscard]] static vmaware_technique linux_user_host() {
         if (util::is_admin()) {
             return false;
         }
@@ -8627,7 +6059,7 @@ public:
      * @category ARM, Linux
      * @implements VM::BLUESTACKS_FOLDERS
      */
-    [[nodiscard]] static bool bluestacks() {
+    [[nodiscard]] static vmaware_technique bluestacks() {
     #if (!VMAWARE_ARM)
         return false;
     #else
@@ -8649,7 +6081,7 @@ public:
      * @warning Permissions required
      * @implements VM::AMD_SEV_MSR
 	 */
-	[[nodiscard]] static bool amd_sev_msr() {
+	[[nodiscard]] static vmaware_technique amd_sev_msr() {
     #if (VMAWARE_X86 && (VMAWARE_LINUX || VMAWARE_APPLE))
         if (!cpu::is_amd()) {
             return false;
@@ -8692,13 +6124,13 @@ public:
             return false;
         }
 
-        if (result & (static_cast<u64>(1) << 2)) { 
-            return core::add(brand_enum::AMD_SEV_SNP); 
+        if (result & (static_cast<u64>(1) << 2)) {
+            return core::add(brand_enum::AMD_SEV_SNP);
         }
-        if (result & (static_cast<u64>(1) << 1)) { 
-            return core::add(brand_enum::AMD_SEV_ES); 
+        if (result & (static_cast<u64>(1) << 1)) {
+            return core::add(brand_enum::AMD_SEV_ES);
         }
-        if (result & 1) { 
+        if (result & 1) {
             return core::add(brand_enum::AMD_SEV);
         }
 
@@ -8714,7 +6146,7 @@ public:
      * @category Linux
      * @implements VM::QEMU_VIRTUAL_DMI
      */
-    [[nodiscard]] static bool qemu_virtual_dmi() {
+    [[nodiscard]] static vmaware_technique qemu_virtual_dmi() {
         const char* sys_vendor = "/sys/devices/virtual/dmi/id/sys_vendor";
         const char* modalias = "/sys/devices/virtual/dmi/id/modalias";
 
@@ -8737,7 +6169,7 @@ public:
      * @warning Permissions required
      * @implements VM::QEMU_USB
      */
-    [[nodiscard]] static bool qemu_usb() {
+    [[nodiscard]] static vmaware_technique qemu_usb() {
         if (!util::is_admin()) {
             return false;
         }
@@ -8765,7 +6197,7 @@ public:
      * @category Linux
      * @implements VM::HYPERVISOR_DIR
      */
-    [[nodiscard]] static bool hypervisor_dir() {
+    [[nodiscard]] static vmaware_technique hypervisor_dir() {
         struct dir_deleter {
             void operator()(DIR* d) const {
                 if (d != nullptr) {
@@ -8787,7 +6219,7 @@ public:
             if (
                 (entry->d_name[0] == '.' && entry->d_name[1] == '\0') ||
                 (entry->d_name[1] == '.' && entry->d_name[2] == '\0')
-               ) 
+               )
             {
                 continue;
             }
@@ -8822,7 +6254,7 @@ public:
      * @category Linux
      * @implements VM::UML_CPU
      */
-    [[nodiscard]] static bool uml_cpu() {
+    [[nodiscard]] static vmaware_technique uml_cpu() {
         /* Method 1, get the CPU brand model */
         const std::string brand = cpu::get_brand();
 
@@ -8842,7 +6274,7 @@ public:
         }
 
         return false;
-    } 
+    }
 
 
     /**
@@ -8852,7 +6284,7 @@ public:
      * @warning Permissions required
      * @implements VM::KMSG
      */
-    [[nodiscard]] static bool kmsg() {
+    [[nodiscard]] static vmaware_technique kmsg() {
         if (!util::is_admin()) {
             return false;
         }
@@ -8874,7 +6306,7 @@ public:
             if (bytes_read > 0) {
                 *(buffer + bytes_read) = '\0';
                 ss << buffer;
-                empty_reads = 0; 
+                empty_reads = 0;
             }
             else if (bytes_read == 0) {
                 if (++empty_reads >= MAX_EMPTY_READS) {
@@ -8916,7 +6348,7 @@ public:
      * @category Linux
      * @implements VM::VBOX_MODULE
      */
-    [[nodiscard]] static bool vbox_module() {
+    [[nodiscard]] static vmaware_technique vbox_module() {
         const char* file = "/proc/modules";
 
         if (!util::exists(file)) {
@@ -8939,7 +6371,7 @@ public:
      * @category Linux
      * @implements VM::SYSINFO_PROC
      */
-    [[nodiscard]] static bool sysinfo_proc() {
+    [[nodiscard]] static vmaware_technique sysinfo_proc() {
         const char* file = "/proc/sysinfo";
 
         if (!util::exists(file)) {
@@ -8953,7 +6385,7 @@ public:
         }
 
         return false;
-    } 
+    }
 
 
     /**
@@ -8961,7 +6393,7 @@ public:
      * @category Linux
      * @implements VM::DMI_SCAN
      */
-    [[nodiscard]] static bool dmi_scan() {
+    [[nodiscard]] static vmaware_technique dmi_scan() {
         /*
          *  cat: /sys/class/dmi/id/board_serial:   Permission denied
          *  cat: /sys/class/dmi/id/chassis_serial: Permission denied
@@ -9036,7 +6468,7 @@ public:
      * @warning Permissions required
      * @implements VM::SMBIOS_VM_BIT
      */
-    [[nodiscard]] static bool smbios_vm_bit() {
+    [[nodiscard]] static vmaware_technique smbios_vm_bit() {
         if (!util::is_admin()) {
             return false;
         }
@@ -9057,7 +6489,7 @@ public:
         vma_debug("SMBIOS_VM_BIT: ", "content.at(19) = ", static_cast<int>(content.at(19)));
 
         return (content.at(19) & (1 << 4));
-    } 
+    }
 
 
     /**
@@ -9065,7 +6497,7 @@ public:
      * @category Linux
      * @implements VM::PODMAN_FILE
      */
-    [[nodiscard]] static bool podman_file() {
+    [[nodiscard]] static vmaware_technique podman_file() {
         if (util::exists("/run/.containerenv")) {
             return core::add(brand_enum::PODMAN);
         }
@@ -9079,7 +6511,7 @@ public:
      * @category Linux
      * @implements VM::WSL_PROC
      */
-    [[nodiscard]] static bool wsl_proc_subdir() {
+    [[nodiscard]] static vmaware_technique wsl_proc_subdir() {
         auto read_proc_nonblock = [](const char* path) -> std::string {
             const int fd = open(path, O_RDONLY | O_NONBLOCK);
 
@@ -9109,7 +6541,7 @@ public:
         if (
             (util::find(osrelease, "WSL") || util::find(osrelease, "Microsoft")) &&
             (util::find(version,   "WSL") || util::find(version,   "Microsoft"))
-           ) 
+           )
         {
             return core::add(brand_enum::WSL);
         }
@@ -9123,7 +6555,7 @@ public:
      * @category Linux
      * @implements VM::QEMU_FW_CFG
      */
-     [[nodiscard]] static bool qemu_fw_cfg() {
+     [[nodiscard]] static vmaware_technique qemu_fw_cfg() {
         /*
          * Linux DT method: inspired by https://github.com/ShellCode33/VM-Detection
          * Linux sysfs method: looks for /sys/module/qemu_fw_cfg/ & /sys/firmware/qemu_fw_cfg/
@@ -9155,7 +6587,7 @@ public:
      * @category Linux
      * @implements VM::CONTAINER_PID
      */
-    [[nodiscard]] static bool container_proc_id() {
+    [[nodiscard]] static vmaware_technique container_proc_id() {
         std::ifstream status_file("/proc/self/status");
         if (!status_file.is_open()) {
             return false;
@@ -9208,7 +6640,7 @@ public:
      * @category Linux
      * @implements VM::TEMPERATURE
      */
-    [[nodiscard]] static bool temperature() {
+    [[nodiscard]] static vmaware_technique temperature() {
         if (util::exists("/sys/class/thermal/cooling_device0")) {
             return false;
         }
@@ -9221,9 +6653,9 @@ public:
      * @category Linux
      * @implements VM::CGROUP
      */
-    [[nodiscard]] static bool cgroup() {
+    [[nodiscard]] static vmaware_technique cgroup() {
         const std::string contents = util::read_file("/proc/self/cgroup");
-        
+
         if (contents.empty()) {
             return false;
         }
@@ -9291,7 +6723,7 @@ public:
      * @category Linux
      * @implements VM::PROCESSES
      */
-    [[nodiscard]] static bool processes() {
+    [[nodiscard]] static vmaware_technique processes() {
         if (util::is_proc_running("qemu_ga")) {
             vma_debug("PROCESSES: Detected QEMU guest agent process.");
             return core::add(brand_enum::QEMU);
@@ -9319,7 +6751,7 @@ public:
      * @brief Check for Task Segment and Descriptor Table instructions (SGDT, SLDT, SMSW, SIDT)
      * @category Windows, Linux, x86, x86_32
      * @implements VM::SYSTEM_REGISTERS
-     * 
+     *
      * --- SGDT ---
      * @note code documentation paper in /papers/www.offensivecomputing.net_vm.pdf (top-most byte signature)
      *
@@ -9334,9 +6766,9 @@ public:
      * --- SIDT ---
      * @author Matteo Malvica
      * @author Idea to check VPC's range from Tom Liston and Ed Skoudis' paper "On the Cutting Edge: Thwarting Virtual Machine Detection" (Windows)
-     * 
+     *
      */
-    [[nodiscard]] static bool system_registers() {
+    [[nodiscard]] static vmaware_technique system_registers() {
         if (util::is_x86_process_on_arm()) {
             return false;
         }
@@ -9506,7 +6938,7 @@ public:
 
                         /* Technique 3: SIDT(x86 & x64) */
                         if (!found) {
-                        #if (VMAWARE_X86_64)        
+                        #if (VMAWARE_X86_64)
                             u8 idtr_buffer[10] = { 0 };
                         #else
                             u8 idtr_buffer[6] = { 0 };
@@ -9605,7 +7037,7 @@ public:
      * @category Windows, Linux
      * @implements VM::AZURE
      */
-    [[nodiscard]] static bool azure() noexcept {
+    [[nodiscard]] static vmaware_technique azure() noexcept {
     #if (VMAWARE_WINDOWS)
         char buf[MAX_COMPUTERNAME_LENGTH + 1] = { 0 };
         DWORD len = sizeof(buf);
@@ -9653,7 +7085,7 @@ public:
      * @warning Permissions required on Linux
      * @implements VM::FIRMWARE
      */
-    [[nodiscard]] static bool firmware() {
+    [[nodiscard]] static vmaware_technique firmware() {
     #pragma pack(push, 1)
         struct acpi_header {
             char signature[4];
@@ -10522,7 +7954,7 @@ public:
      * @category Linux, Windows
      * @implements VM::DEVICES
      */
-    [[nodiscard]] static bool devices() {
+    [[nodiscard]] static vmaware_technique devices() {
         struct pci_device { u16 vendor_id; u32 device_id; };
         std::vector<pci_device> devices;
 
@@ -10782,12 +8214,12 @@ public:
                     return true;
 
                 /* VMware */
-                case 0x15ad0710: case 0x15ad0720: case 0x15ad0770: case 0x15ad0774: 
-                case 0x15ad0778: case 0x15ad0779: case 0x15ad0790: case 0x15ad07a0: 
-                case 0x15ad07b0: case 0x15ad07c0: case 0x15ad07e0: case 0x15ad07f0: 
-                case 0x15ad0801: case 0x15ad0820: case 0x15ad1977: case 0xfffe0710: 
-                case 0x0e0f0001: case 0x0e0f0002: case 0x0e0f0003: case 0x0e0f0004: 
-                case 0x0e0f0005: case 0x0e0f0006: case 0x0e0f000a: case 0x0e0f8001: 
+                case 0x15ad0710: case 0x15ad0720: case 0x15ad0770: case 0x15ad0774:
+                case 0x15ad0778: case 0x15ad0779: case 0x15ad0790: case 0x15ad07a0:
+                case 0x15ad07b0: case 0x15ad07c0: case 0x15ad07e0: case 0x15ad07f0:
+                case 0x15ad0801: case 0x15ad0820: case 0x15ad1977: case 0xfffe0710:
+                case 0x0e0f0001: case 0x0e0f0002: case 0x0e0f0003: case 0x0e0f0004:
+                case 0x0e0f0005: case 0x0e0f0006: case 0x0e0f000a: case 0x0e0f8001:
                 case 0x0e0f8002: case 0x0e0f8003: case 0x0e0ff80a:
                     vma_debug("DEVICES: Detected VMWARE device -> 0x", std::hex, id32);
                     return core::add(brand_enum::VMWARE);
@@ -10848,7 +8280,7 @@ public:
                 case 0x0000000010221100ULL:
                     vma_debug("DEVICES: Detected QEMU device -> 0x", std::hex, id64);
                     return core::add(brand_enum::QEMU);
-    
+
                 case 0x0000000015ad0800ULL:  /* Hypervisor ROM Interface */
                     vma_debug("DEVICES: Detected Hypervisor ROM interface -> 0x", std::hex, id64);
                     return core::add(brand_enum::VMWARE);
@@ -10856,7 +8288,7 @@ public:
                 default: break;
             }
         }
-        
+
         return false;
     }
 
@@ -10867,12 +8299,12 @@ public:
      * @author Teselka (https://github.com/Teselka)
      * @implements VM::BOOT_LOGO
      */
-    [[nodiscard]] static bool boot_logo()
+    [[nodiscard]] static vmaware_technique boot_logo()
     #if (VMAWARE_X86 && (VMAWARE_CLANG || VMAWARE_GCC))
         __attribute__((__target__("crc32")))
     #endif
     {
-    #if (VMAWARE_X86_64)       
+    #if (VMAWARE_X86_64)
         #if (VMAWARE_WINDOWS)
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
@@ -10987,13 +8419,13 @@ public:
     #endif
     }
 
-    
+
     /**
     * @brief Check for presence of virtual disks
     * @category Windows
     * @implements VM::DISK
     */
-    [[nodiscard]] static bool disk() {
+    [[nodiscard]] static vmaware_technique disk() {
         bool result = false;
 
         /*
@@ -11656,7 +9088,7 @@ public:
      * @category x86 (ARM might have very low thread counts, which is why it should be only for x86)
      * @implements VM::THREAD_COUNT
      */
-    [[nodiscard]] static bool thread_count() {
+    [[nodiscard]] static vmaware_technique thread_count() {
     #if (VMAWARE_X86 && !VMAWARE_APPLE)
         vma_debug("THREAD_COUNT: ", "threads = ", memo::thread_count::fetch());
 
@@ -11667,7 +9099,7 @@ public:
         }
 
         return (memo::thread_count::fetch() <= 2);
-    #else 
+    #else
         return false;
     #endif
     }
@@ -11678,14 +9110,14 @@ public:
     #pragma region "Apple"
 #endif
 
-#if (VMAWARE_APPLE) 
+#if (VMAWARE_APPLE)
     /**
      * @brief Check if the sysctl for the hwmodel does not contain the "Mac" string
      * @author MacRansom ransomware
      * @category MacOS
      * @implements VM::HWMODEL
      */
-    [[nodiscard]] static bool hwmodel() {      
+    [[nodiscard]] static vmaware_technique hwmodel() {
         /* Hw.model strings are short (like for example MacBookPro16,1), 128 bytes is plenty */
         char buffer[128] = { 0 };
         size_t size = sizeof(buffer);
@@ -11726,7 +9158,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_MEMSIZE
      */
-    [[nodiscard]] static bool hw_memsize() {
+    [[nodiscard]] static vmaware_technique hw_memsize() {
         std::unique_ptr<std::string> result = util::sys_result("sysctl -n hw.memsize");
         const std::string ram = *result;
 
@@ -11757,7 +9189,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_IOKIT
      */
-    [[nodiscard]] static bool io_kit() {
+    [[nodiscard]] static vmaware_technique io_kit() {
         /* Board_ptr and manufacturer_ptr empty */
         std::unique_ptr<std::string> platform_ptr = util::sys_result("ioreg -rd1 -c IOPlatformExpertDevice");
         std::unique_ptr<std::string> board_ptr = util::sys_result("ioreg -rd1 -c board-id");
@@ -11854,7 +9286,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::IOREG_GREP
      */
-    [[nodiscard]] static bool ioreg_grep() {
+    [[nodiscard]] static vmaware_technique ioreg_grep() {
         auto check_usb = []() -> bool {
             std::unique_ptr<std::string> result = util::sys_result("ioreg -rd1 -c IOUSBHostDevice | grep \"USB Vendor Name\"");
             const std::string usb = *result;
@@ -11894,7 +9326,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_SIP
      */
-    [[nodiscard]] static bool mac_sip() {
+    [[nodiscard]] static vmaware_technique mac_sip() {
         int hv_present = 0;
         std::size_t size = sizeof(hv_present);
         if (sysctlbyname("kern.hv_vmm_present",
@@ -11938,7 +9370,7 @@ public:
      * @category MacOS
      * @implements VM::MAC_SYS
      */
-    [[nodiscard]] static bool mac_sys() {
+    [[nodiscard]] static vmaware_technique mac_sys() {
         const char* keyword = "virtual machine";
 
         if (std::unique_ptr<std::string> profiler_res_ptr = util::sys_result("system_profiler SPHardwareDataType")) {
@@ -11968,7 +9400,7 @@ public:
      * @category Windows
      * @implements VM::DLL
      */
-    [[nodiscard]] static bool dll() {
+    [[nodiscard]] static vmaware_technique dll() {
         static constexpr struct {
             const wchar_t* dll_name;
             enum brand_enum brand;
@@ -11992,57 +9424,52 @@ public:
         return false;
     }
 
-             
+
     /**
      * @brief Check for Wine Is Not An Emulator artifacts
      * @category Windows
      * @implements VM::WINE
      */
-    [[nodiscard]] static bool wine() {
+    [[nodiscard]] static vmaware_technique wine() {
         const HMODULE ntdll = memory::get_module(true);
-        if (ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr) {
+        const char* ntdll_names[] = { "wine_get_version" };
+        void* ntdll_funcs[1] = {};
+        memory::get_function(ntdll, ntdll_names, ntdll_funcs, 1);
+
+        if (ntdll_funcs[0]) {
             vma_debug("WINE: ntdll!wine_get_version detected");
             return core::add(brand_enum::WINE);
         }
 
         const HMODULE kernel32 = memory::get_module(false);
-        /* If kernel32 handle could not be obtained for some weird reason, abort to prevent execution from reaching "IsNativeVhdBoot export missing in Win8+ environment" */
         if (!kernel32) {
             return false;
         }
 
-        if (GetProcAddress(kernel32, "wine_get_unix_file_name") != nullptr) {
+        const char* k32_names[] = { "wine_get_unix_file_name", "IsNativeVhdBoot" };
+        void* k32_funcs[2] = {};
+        memory::get_function(kernel32, k32_names, k32_funcs, 2);
+
+        if (k32_funcs[0]) {
             vma_debug("WINE: kernel32!wine_get_unix_file_name detected");
             return core::add(brand_enum::WINE);
         }
 
-        /* Genuine Windows returns - 1 (x64, ARM64) or 2 (x86 / SysWOW64), so we don't need IsWow64Process runtime checks */
         if (MulDiv(1, INT_MIN, INT_MIN) == 0) {
             vma_debug("WINE: MulDiv zero-result quirk detected");
             return core::add(brand_enum::WINE);
         }
 
         if (util::is_windows_8_or_newer()) {
-            using is_native_vhd_boot_fn = BOOL(__stdcall*)(PBOOL);
-            auto is_native_vhd_boot = reinterpret_cast<is_native_vhd_boot_fn>(
-                GetProcAddress(kernel32, "IsNativeVhdBoot")
-            );
-
-            if (!is_native_vhd_boot) {
+            if (!k32_funcs[1]) {
                 vma_debug("WINE: IsNativeVhdBoot export missing in Win8+ environment");
                 return core::add(brand_enum::WINE);
             }
 
-            /* If Wine implements it as an unhandled stub in spec files, it raises EXCEPTION_WINE_STUB */
             bool threw_exception = false;
             __try {
-                /*
-                 * We dont call NtQuerySystemInformation with SystemPrefetchPathInformation | SystemHandleInformation
-                 * the point is to check if this kernel32.dll function throws an exception
-                 * Also, we do not return here so that the compiler doesn't need to generate a local unwind runtime thunk
-                 */
                 BOOL is_vhd = FALSE;
-                is_native_vhd_boot(&is_vhd);
+                reinterpret_cast<BOOL(__stdcall*)(PBOOL)>(k32_funcs[1])(&is_vhd);
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {
                 threw_exception = true;
@@ -12063,7 +9490,7 @@ public:
      * @category Windows
      * @implements VM::POWER_CAPABILITIES
      */
-    [[nodiscard]] static bool power_capabilities() {
+    [[nodiscard]] static vmaware_technique power_capabilities() {
         const HMODULE ntdll = memory::get_module(true);
 
         constexpr const char* function_names[] = { "NtPowerInformation" }; /* Win8 // Windows Server 2012 */
@@ -12118,7 +9545,7 @@ public:
      * @category Windows
      * @implements VM::GAMARUE
      */
-    [[nodiscard]] static bool gamarue() {
+    [[nodiscard]] static vmaware_technique gamarue() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -12244,14 +9671,14 @@ public:
 
         return false;
     }
- 
+
 
     /**
      * @brief Check for presence of VPC
      * @category Windows, x86_32
      * @implements VM::VPC_INVALID
      */
-    [[nodiscard]] static bool vpc_invalid() {
+    [[nodiscard]] static vmaware_technique vpc_invalid() {
         bool rc = false;
     #if (VMAWARE_X86_32 && !VMAWARE_CLANG)
         if (util::is_x86_process_on_arm()) {
@@ -12314,7 +9741,10 @@ public:
         }
     #endif
 
-        return rc ? core::add(brand_enum::VPC) : false;
+        if (rc) {
+            return core::add(brand_enum::VPC);
+        }
+        return false;
     }
 
 
@@ -12324,7 +9754,7 @@ public:
      * @category Windows, x86_32
      * @implements VM::VMWARE_STR
      */
-    [[nodiscard]] static bool vmware_str() {
+    [[nodiscard]] static vmaware_technique vmware_str() {
     #if (VMAWARE_X86_32)
         if (util::is_x86_process_on_arm()) {
             return false;
@@ -12357,7 +9787,7 @@ public:
      * @author hfiref0x
      * @implements VM::MUTEX
      */
-    [[nodiscard]] static bool mutex() {
+    [[nodiscard]] static vmaware_technique mutex() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -12448,7 +9878,7 @@ public:
      * @link https://unprotect.it/snippet/checking-specific-folder-name/196/
      * @implements VM::CUCKOO
      */
-    [[nodiscard]] static bool cuckoo() {
+    [[nodiscard]] static vmaware_technique cuckoo() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -12458,7 +9888,7 @@ public:
         void* functions[ARRAYSIZE(function_names)] = {};
         memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
-        using nt_openfile_t = 
+        using nt_openfile_t =
             NTSTATUS(__stdcall*)(PHANDLE FileHandle, ACCESS_MASK DesiredAccess,
             POBJECT_ATTRIBUTES ObjectAttributes, PIO_STATUS_BLOCK IoStatusBlock,
             ULONG ShareAccess, ULONG OpenOptions);
@@ -12533,7 +9963,7 @@ public:
      * @category Windows
      * @implements VM::DISPLAY
      */
-    [[nodiscard]] static bool display() {
+    [[nodiscard]] static vmaware_technique display() {
         const HDC hdc = GetDC(nullptr);
         if (!hdc) {
             return false;
@@ -12552,7 +9982,7 @@ public:
      * @category Windows
      * @implements VM::DRIVERS
      */
-    [[nodiscard]] static bool drivers() {
+    [[nodiscard]] static vmaware_technique drivers() {
         struct _SYSTEM_MODULE_INFORMATION {
             PVOID  Reserved[2];
             PVOID  ImageBaseAddress;
@@ -12784,7 +10214,7 @@ public:
      * @category Windows
      * @implements VM::GPU_CAPABILITIES
      */
-    [[nodiscard]] static bool gpu_capabilities() {
+    [[nodiscard]] static vmaware_technique gpu_capabilities() {
         /*
             Microsoft::WRL::ComPtr<IDirect3D9> d3d9 {
                 Direct3DCreate9(D3D_SDK_VERSION)
@@ -12801,7 +10231,7 @@ public:
                 return false;
             }
 
-            // If the driver cannot adjust the display gamma ramp dynamically but only in full-screen mode—via the IDirect3DDevice9::SetGammaRamp API 
+            // If the driver cannot adjust the display gamma ramp dynamically but only in full-screen mode—via the IDirect3DDevice9::SetGammaRamp API
             return !(caps.Caps2 & D3DCAPS2_FULLSCREENGAMMA);
         */
 
@@ -12824,7 +10254,7 @@ public:
      * @category Windows
      * @implements VM::HANDLES
      */
-    [[nodiscard]] static bool device_handles() {
+    [[nodiscard]] static vmaware_technique device_handles() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -12919,7 +10349,7 @@ public:
      * @category Windows, x86
      * @implements VM::VIRTUAL_PROCESSORS
      */
-    [[nodiscard]] static bool virtual_processors() {
+    [[nodiscard]] static vmaware_technique virtual_processors() {
     #if (VMAWARE_X86)
         int regs[4];
         __cpuid(regs, cpu::leaf::hypervisor);
@@ -12942,14 +10372,14 @@ public:
         return false;
     }
 
-    
+
     /**
      * @brief Check for particular object directory which is present in Sandboxie virtual environment but not in usual host systems
      * @category Windows
      * @link https://evasions.checkpoint.com/src/Evasions/techniques/global-os-objects.html
      * @implements VM::VIRTUAL_REGISTRY
      */
-    [[nodiscard]] static bool virtual_registry() {
+    [[nodiscard]] static vmaware_technique virtual_registry() {
         struct custom_unicode_string {
             USHORT Length;
             USHORT MaximumLength;
@@ -13088,16 +10518,19 @@ public:
             mismatch = (_wcsnicmp(object_name->Name.Buffer, raw_target, target_char_count) != 0);
         }
 
-        return mismatch ? core::add(brand_enum::SANDBOXIE) : false;
+        if (mismatch) {
+            return core::add(brand_enum::SANDBOXIE);
+        }
+        return false;
     }
-    
-    
+
+
     /**
      * @brief Check for VM-specific ACPI device signatures
      * @category Windows
      * @implements VM::ACPI_SIGNATURE
      */
-    [[nodiscard]] static bool acpi_signature() {
+    [[nodiscard]] static vmaware_technique acpi_signature() {
         /* Enumerate all devices */
         const HDEVINFO handle_dev_info = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES | DIGCF_PRESENT);
         if (handle_dev_info == INVALID_HANDLE_VALUE) {
@@ -13228,7 +10661,7 @@ public:
      * @category Windows, x86_64
      * @implements VM::TRAP
      */
-    [[nodiscard]] static bool trap() {
+    [[nodiscard]] static vmaware_technique trap() {
         if (util::is_x86_process_on_arm()) {
             return false;
         }
@@ -13394,7 +10827,7 @@ public:
      * @category Windows
      * @implements VM::UD
      */
-    [[nodiscard]] static bool ud() {
+    [[nodiscard]] static vmaware_technique ud() {
     #if (VMAWARE_X86) || (VMAWARE_ARM32) || (VMAWARE_ARM64)
         bool saw_ud = false;
 
@@ -13417,7 +10850,7 @@ public:
      * @category Windows
      * @implements VM::INTERRUPT_SHADOW
      */
-    [[nodiscard]] static bool interrupt_shadow() {
+    [[nodiscard]] static vmaware_technique interrupt_shadow() {
     #if (VMAWARE_X86)
         if (util::hyper_x() == HYPERV_HOST) {
             return false;
@@ -13607,7 +11040,7 @@ public:
      * @category Windows
      * @implements VM::DBVM
      */
-    [[nodiscard]] static bool dbvm() {
+    [[nodiscard]] static vmaware_technique dbvm() {
     #if (!VMAWARE_X86_64)
         return false;
     #else
@@ -13775,11 +11208,11 @@ public:
     }
 
     /**
-     * @brief Check for any signs of VMs in Windows kernel object entities 
+     * @brief Check for any signs of VMs in Windows kernel object entities
      * @category Windows
      * @implements VM::KERNEL_OBJECTS
      */
-    [[nodiscard]] static bool kernel_objects() {
+    [[nodiscard]] static vmaware_technique kernel_objects() {
         struct OBJECT_DIRECTORY_INFORMATION {
             UNICODE_STRING Name;
             UNICODE_STRING TypeName;
@@ -13895,7 +11328,7 @@ public:
             const uintptr_t name_ptr = reinterpret_cast<uintptr_t>(object_dir_info->Name.Buffer);
 
             if (name_bytes == 0 || (name_bytes % sizeof(wchar_t) != 0) || (name_ptr % sizeof(wchar_t) != 0)) {
-                continue; 
+                continue;
             }
 
             const uintptr_t buf_base = reinterpret_cast<uintptr_t>(buffer.data());
@@ -13903,7 +11336,7 @@ public:
             const uintptr_t min_valid_ptr = buf_base + sizeof(OBJECT_DIRECTORY_INFORMATION);
 
             if (name_ptr < min_valid_ptr || name_ptr >= buf_end || name_bytes >(buf_end - name_ptr)) {
-                continue; 
+                continue;
             }
 
             const auto* wname = reinterpret_cast<const wchar_t*>(name_ptr);
@@ -13934,7 +11367,10 @@ public:
         }
 
         nt_close(dir);
-        return detected ? core::add(detected_brand) : false;
+        if (detected) {
+            return core::add(detected_brand);
+        }
+        return false;
     }
 
 
@@ -13944,7 +11380,7 @@ public:
      * @warning Permissions required
      * @implements VM::NVRAM
      */
-    static bool nvram() {
+    [[nodiscard]] static vmaware_technique nvram() {
         if (!util::is_admin()) {
             return false;
         }
@@ -13975,11 +11411,7 @@ public:
 
         HANDLE current_process = reinterpret_cast<HANDLE>(-1);
 
-        /*
-         * -------------------------------------------------------------------------
-         * Helper lambdas
-         * -------------------------------------------------------------------------
-         */
+        /* Helper lambdas */
         auto buffer_contains_ascii_ci = [](const BYTE* data, size_t len, const char* pat) noexcept -> bool {
             if (!data || len == 0 || !pat || pat[0] == '\0') {
                 return false;
@@ -14102,11 +11534,7 @@ public:
             return false;
         };
 
-        /*
-         * -------------------------------------------------------------------------
-         * Main logic block
-         * -------------------------------------------------------------------------
-         */
+        /* Main logic block */
         do {
             if (!OpenProcessToken(current_process, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token_handle)) {
                 break;
@@ -14174,11 +11602,7 @@ public:
                 break;
             }
 
-            /*
-             * ---------------------------------------------------------------------
-             * Constants and data
-             * ---------------------------------------------------------------------
-             */
+            /* Constants and data */
             constexpr const char redhat_sig_ascii[] = "red hat";
             constexpr const wchar_t redhat_sig_wide[] = L"red hat";
             SIZE_T pk_default_len = 0;
@@ -14187,11 +11611,7 @@ public:
             constexpr size_t MAX_NAME_BYTE_LIMIT = 4096;
             bool should_break_loop = false;
 
-            /*
-             * ---------------------------------------------------------------------
-             * Iteration loop
-             * ---------------------------------------------------------------------
-             */
+            /* Iteration loop */
             while (true) {
                 const uintptr_t base_address = reinterpret_cast<uintptr_t>(enum_base_buffer);
                 const uintptr_t current_address = reinterpret_cast<uintptr_t>(current_var);
@@ -14344,7 +11764,7 @@ public:
      * @category Windows, x86
      * @implements VM::CPU_HEURISTIC
      */
-    [[nodiscard]] static bool cpu_heuristic() {
+    [[nodiscard]] static vmaware_technique cpu_heuristic() {
         bool spoofed = false;
     #if (VMAWARE_X86)
         if (util::is_x86_process_on_arm()) {
@@ -14927,7 +12347,7 @@ public:
      * @category Windows, x86
      * @implements VM::MSR
      */
-    [[nodiscard]] static bool msr() {
+    [[nodiscard]] static vmaware_technique msr() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -14937,7 +12357,7 @@ public:
 
         constexpr u32 random_msr = 0xDEADBEEFu;
 
-    #if (VMAWARE_GCC || VMAWARE_CLANG) 
+    #if (VMAWARE_GCC || VMAWARE_CLANG)
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) return false;
 
@@ -15133,7 +12553,7 @@ public:
      * @category Windows, x86
      * @implements VM::KVM_INTERCEPTION
      */
-    [[nodiscard]] static bool kvm_interception() {
+    [[nodiscard]] static vmaware_technique kvm_interception() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -15167,456 +12587,11 @@ public:
 
 
     /**
-     * @brief Check whether a hypervisor uses EPT/NPT hooking
-     * @note This hypervisor detection also affects debuggers
-     * @category Windows, x86
-     * @author @NickEverdox (https://github.com/everdox) - ERMSB check
-     * @implements VM::HYPERVISOR_HOOK
-     */
-    [[nodiscard]] static bool hypervisor_hook() {
-    #if (!VMAWARE_X86)
-        return false;
-    #else
-        #if (defined VMAWARE_DEBUG)
-            if (IsDebuggerPresent()) {
-                vma_debug("HYPERVISOR_HOOK: Debugger detected");
-                return false; /* To not hit the debugger breakpoint, making the debugger impossible to advance */
-            }
-        #endif  
-        if (util::is_x86_process_on_arm()) {
-            return false;
-        }
-        const HMODULE ntdll = memory::get_module(true);
-        if (!ntdll) {
-            return false;
-        }
-
-        constexpr const char* function_names[] = {
-            "NtAllocateVirtualMemory",
-            "NtFreeVirtualMemory",
-            "NtGetContextThread",
-            "NtSetContextThread",
-            "RtlAddVectoredExceptionHandler",
-            "RtlRemoveVectoredExceptionHandler",
-            "NtProtectVirtualMemory",
-            "NtFlushInstructionCache",
-            "NtClose"
-        };
-        void* functions[ARRAYSIZE(function_names)] = {};
-        memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
-
-        using nt_allocate_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
-        using nt_free_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, PSIZE_T, ULONG);
-        using net_get_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
-        using nt_set_context_thread_fn = NTSTATUS(__stdcall*)(HANDLE, PCONTEXT);
-        using rtl_add_vectored_exception_handler_fn = PVOID(__stdcall*)(ULONG, PVECTORED_EXCEPTION_HANDLER);
-        using rtl_remove_vectored_exception_handler_fn = ULONG(__stdcall*)(PVOID);
-        using nt_protect_virtual_memory_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID*, PSIZE_T, ULONG, PULONG);
-        using nt_flush_instruction_cache_fn = NTSTATUS(__stdcall*)(HANDLE, PVOID, SIZE_T);
-        using ntclose_fn = NTSTATUS(__stdcall*)(HANDLE);
-
-        /* Volatile ensures these are loaded from stack after SEH unwind when compiled with aggressive optimizations */
-        nt_allocate_virtual_memory_fn volatile nt_allocate_virtual_memory = reinterpret_cast<nt_allocate_virtual_memory_fn>(functions[0]);
-        nt_free_virtual_memory_fn volatile nt_free_virtual_memory = reinterpret_cast<nt_free_virtual_memory_fn>(functions[1]);
-        net_get_context_thread_fn volatile nt_get_context_thread = reinterpret_cast<net_get_context_thread_fn>(functions[2]);
-        nt_set_context_thread_fn volatile nt_set_context_thread = reinterpret_cast<nt_set_context_thread_fn>(functions[3]);
-        rtl_add_vectored_exception_handler_fn volatile rtl_add_vectored_exception_handler = reinterpret_cast<rtl_add_vectored_exception_handler_fn>(functions[4]);
-        rtl_remove_vectored_exception_handler_fn volatile rtl_remove_vectored_exception_handler = reinterpret_cast<rtl_remove_vectored_exception_handler_fn>(functions[5]);
-        nt_protect_virtual_memory_fn volatile nt_protect_virtual_memory = reinterpret_cast<nt_protect_virtual_memory_fn>(functions[6]);
-        nt_flush_instruction_cache_fn volatile nt_flush_instruction_cache = reinterpret_cast<nt_flush_instruction_cache_fn>(functions[7]);
-        ntclose_fn volatile nt_close = reinterpret_cast<ntclose_fn>(functions[8]);
-        
-        if (!nt_allocate_virtual_memory || !nt_free_virtual_memory || !nt_get_context_thread ||
-            !nt_set_context_thread || !rtl_add_vectored_exception_handler || !rtl_remove_vectored_exception_handler ||
-            !nt_protect_virtual_memory || !nt_flush_instruction_cache || nt_close) {
-            return false;
-        }
-
-        HANDLE current_process = reinterpret_cast<HANDLE>(-1);
-        HANDLE current_thread = reinterpret_cast<HANDLE>(-2);
-        GROUP_AFFINITY original_affinity{};
-        if (!GetThreadGroupAffinity(current_thread, &original_affinity)) {
-            return false;
-        }
-
-        using find_double_cc_ntdll_fn = void* (*)(HMODULE);
-        find_double_cc_ntdll_fn find_double_cc_ntdll = [](HMODULE module) noexcept -> void* {
-            if (!module) {
-                return nullptr;
-            }
-
-            /* Parse PE headers to find executable sections */
-            auto* dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
-            if (dos_header->e_magic != IMAGE_DOS_SIGNATURE) {
-                return nullptr;
-            }
-
-            if (dos_header->e_lfanew <= 0 || dos_header->e_lfanew > 0x10000000) {
-                return nullptr;
-            }
-
-            auto* nt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<u8*>(module) + dos_header->e_lfanew);
-            if (nt_headers->Signature != IMAGE_NT_SIGNATURE) {
-                return nullptr;
-            }
-
-            auto* section = IMAGE_FIRST_SECTION(nt_headers);
-            for (WORD i = 0; i < nt_headers->FileHeader.NumberOfSections; ++i, ++section) {
-                /* Only scan memory marked as executable */
-                if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0) {
-                    u8* ptr = reinterpret_cast<u8*>(module) + section->VirtualAddress;
-                    const size_t size = section->Misc.VirtualSize;
-
-                    if (size < 2) {
-                        continue;
-                    }
-
-                    for (size_t j = 0; j < size - 1; ++j) {
-                        if (j + 64 < size) {
-                            VMAWARE_PREFETCH(&ptr[j + 64], _MM_HINT_T0);
-                        }
-                        if (ptr[j] == 0xCC && ptr[j + 1] == 0xCC) {
-                            /*
-                             * By returning ptr[j + 1], executing it will safely run 0xC3 (after overwrite)
-                             * if we overwrite j+1 with 0xC3 and call it, it immediately returns
-                             */
-                            return &ptr[j + 1];
-                        }
-                    }
-                }
-            }
-            return nullptr;
-        };
-
-        using find_double_cc_fn = void* (*)(void*);
-        find_double_cc_fn find_double_cc = [](void* pointer_in_page) noexcept -> void* {
-            /* Align down to the start of the 4KB page */
-            auto* ptr = reinterpret_cast<u8*>(reinterpret_cast<uintptr_t>(pointer_in_page) & ~0xFFF);
-
-            for (size_t i = 0; i < (0x1000 - 1); ++i) {
-                if (ptr[i] == 0xCC && ptr[i + 1] == 0xCC) {
-                    return &ptr[i + 1];
-                }
-            }
-            return nullptr;
-        };
-
-        void* pointer = find_double_cc_ntdll(ntdll);
-        if (!pointer) {
-            void* current_func_ptr = reinterpret_cast<void*>(&hypervisor_hook);
-            pointer = find_double_cc(current_func_ptr);
-            if (!pointer) {
-                return false;
-            }
-        }
-
-        /* Executing CC natively should throw */
-        if (!memory::execute_handler(pointer)) {
-            return false; /* SEH is broken or code isn't actually CC */
-        }
-
-        /* Overwrite CC with C3 (RET) */
-        PVOID base_address = pointer;
-        SIZE_T prot_region_size = 1;
-        ULONG old_protect = 0;
-
-        /*
-         * NtProtectVirtualMemory modifies BaseAddress and RegionSize to page boundaries,
-         * so we must reset them on subsequent calls
-         */
-        const u8 original_byte = *static_cast<volatile u8*>(pointer);
-
-        NTSTATUS status = nt_protect_virtual_memory(current_process, &base_address, &prot_region_size, PAGE_EXECUTE_READWRITE, &old_protect);
-        if (status < 0) {
-            return false;
-        }
-
-        *static_cast<volatile u8*>(pointer) = 0xC3;
-        nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
-
-        base_address = pointer;
-        prot_region_size = 1;
-        ULONG dummy_protect = 0;
-        status = nt_protect_virtual_memory(current_process, &base_address, &prot_region_size, old_protect, &dummy_protect);
-        if (status < 0) {
-            /* Emergency cleanup before early exit */
-            *static_cast<volatile u8*>(pointer) = original_byte;
-            nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
-            return false;
-        }
-
-        auto restore_original_byte = [&]() noexcept {
-            PVOID restore_addr = pointer;
-            SIZE_T restore_size = 1;
-            ULONG prev_prot = 0;
-            if (nt_protect_virtual_memory(current_process, &restore_addr, &restore_size, PAGE_EXECUTE_READWRITE, &prev_prot) >= 0) {
-                *static_cast<volatile u8*>(pointer) = original_byte;
-                nt_flush_instruction_cache(current_process, static_cast<void*>(pointer), 1);
-                nt_protect_virtual_memory(current_process, &restore_addr, &restore_size, prev_prot, &dummy_protect);
-            }
-        };
-
-        bool hook_detected = false;
-
-        /* Test if write was swallowed by the hypervisor on the current core */
-        if (memory::execute_handler(pointer)) {
-            hook_detected = true;
-        }
-        else {
-            volatile LONG did_anyone_throw = 0;
-            GROUP_AFFINITY active_group_aff{};
-
-            if (GetThreadGroupAffinity(current_thread, &active_group_aff)) {
-                constexpr ULONG max_affinity_bits = static_cast<ULONG>(sizeof(active_group_aff.Mask) * 8);
-                for (ULONG i = 0; i < max_affinity_bits; ++i) {
-                    if (active_group_aff.Mask & (static_cast<KAFFINITY>(1) << i)) {
-                        GROUP_AFFINITY target_aff = active_group_aff;
-                        target_aff.Mask = static_cast<KAFFINITY>(1) << i;
-
-                        if (SetThreadGroupAffinity(current_thread, &target_aff, nullptr)) {
-                            __try {
-                                memory::execute(pointer);
-                            }
-                            __except (EXCEPTION_EXECUTE_HANDLER) {
-                                did_anyone_throw = 1;
-                            }
-                        }
-                    }
-                }
-                SetThreadGroupAffinity(current_thread, &original_affinity, nullptr);
-            }
-
-            if (did_anyone_throw != 0) {
-                hook_detected = true;
-            }
-        }
-
-        restore_original_byte();
-
-        HANDLE target_thread = current_thread;
-        HANDLE real_thread_handle = nullptr;
-        /* For x86_32 running under Wow64, we can't pass a pseudo-handle to whNtSetContextThread, so we DuplicateHandle */
-        if (DuplicateHandle(current_process, current_thread, current_process, &real_thread_handle,
-            THREAD_SET_CONTEXT | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0)) {
-            target_thread = real_thread_handle;
-        }
-
-        CONTEXT initial_dbg_ctx{};
-        initial_dbg_ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-        if (nt_get_context_thread(target_thread, &initial_dbg_ctx) < 0) {
-            if (real_thread_handle) {
-                nt_close(real_thread_handle);
-            }
-            return hook_detected;
-        }
-
-        PVOID src_page = nullptr;
-        PVOID dst_page = nullptr;
-        SIZE_T region_size = 0x2000;
-
-        /* Allocate ERMSB source and destination pages */
-        const NTSTATUS status_src = nt_allocate_virtual_memory(current_process, &src_page, 0, &region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        region_size = 0x2000;
-        const NTSTATUS status_dst = nt_allocate_virtual_memory(current_process, &dst_page, 0, &region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-
-        if (status_src < 0 || status_dst < 0) {
-            if (src_page) {
-                SIZE_T free_size = 0;
-                nt_free_virtual_memory(current_process, &src_page, &free_size, MEM_RELEASE);
-            }
-            if (dst_page) {
-                SIZE_T free_size = 0;
-                nt_free_virtual_memory(current_process, &dst_page, &free_size, MEM_RELEASE);
-            }
-            if (real_thread_handle) {
-                nt_close(real_thread_handle);
-            }
-            return hook_detected;
-        }
-
-        /* Initialize src memory */
-        __stosb(static_cast<PBYTE>(src_page), 0xAB, 0x2000);
-
-        static volatile bool ermsb_trap_detected = false;
-        static DWORD ermsb_expected_tid = 0;
-        ermsb_trap_detected = false;
-    #if (VMAWARE_X86_64)
-        ermsb_expected_tid = static_cast<DWORD>(*reinterpret_cast<const ULONG64*>(__readgsqword(0x30) + 0x48));
-    #elif (VMAWARE_X86_32)
-        ermsb_expected_tid = static_cast<DWORD>(*reinterpret_cast<const ULONG32*>(__readfsdword(0x18) + 0x24));
-    #endif
-        struct exception_handler {
-            static VMAWARE_NOINLINE LONG __stdcall execute(const PEXCEPTION_POINTERS ctx) noexcept {
-            #if (VMAWARE_X86_64)
-                const DWORD current_thread_id = static_cast<DWORD>(*reinterpret_cast<const ULONG64*>(__readgsqword(0x30) + 0x48));
-            #elif (VMAWARE_X86_32)
-                const DWORD current_thread_id = static_cast<DWORD>(*reinterpret_cast<const ULONG32*>(__readfsdword(0x18) + 0x24));
-            #endif
-
-                if (current_thread_id == ermsb_expected_tid &&
-                    ctx && ctx->ExceptionRecord &&
-                    ctx->ExceptionRecord->ExceptionCode == EXCEPTION_SINGLE_STEP) {
-                    ermsb_trap_detected = true;
-                    return EXCEPTION_CONTINUE_EXECUTION;
-                }
-                return EXCEPTION_CONTINUE_SEARCH;
-            }
-        };
-
-        const PVOID veh_handle = rtl_add_vectored_exception_handler(1, exception_handler::execute);
-        if (!veh_handle) {
-            SIZE_T free_size = 0;
-            nt_free_virtual_memory(current_process, &src_page, &free_size, MEM_RELEASE);
-            free_size = 0;
-            nt_free_virtual_memory(current_process, &dst_page, &free_size, MEM_RELEASE);
-            if (real_thread_handle) {
-                nt_close(real_thread_handle);
-            }
-            return hook_detected;
-        }
-
-        CONTEXT ctx = initial_dbg_ctx;
-        ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-        /* DWORD_PTR is a must to support both x86-32 and x86-64 */
-        ctx.Dr0 = static_cast<DWORD_PTR>(reinterpret_cast<uintptr_t>(src_page) + 0x1000);
-
-        /*
-         * Dr7 = 0x30401
-         * bit 0      = 1  (L0: local enable)
-         * bit 10     = 1  (must always be 1 on x86/x64)
-         * bits 17:16 = 11b (read/write data)
-         * bits 19:18 = 00b (1-byte length)
-         */
-        ctx.Dr7 = 0x30401;
-
-        status = static_cast<NTSTATUS>(-1);
-        __try {
-            status = nt_set_context_thread(target_thread, &ctx);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            status = static_cast<NTSTATUS>(-1);
-        }
-
-        if (status < 0) {
-            rtl_remove_vectored_exception_handler(veh_handle);
-            SIZE_T free_size = 0;
-            nt_free_virtual_memory(current_process, &src_page, &free_size, MEM_RELEASE);
-            free_size = 0;
-            nt_free_virtual_memory(current_process, &dst_page, &free_size, MEM_RELEASE);
-            if (real_thread_handle) {
-                nt_close(real_thread_handle);
-            }
-            return hook_detected;
-        }
-
-        __try {
-            __movsb(static_cast<PBYTE>(dst_page), static_cast<PBYTE>(src_page), 0x2000);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            /* VEH will already detect if Dr0 fired successfully */
-        }
-
-        rtl_remove_vectored_exception_handler(veh_handle);
-
-        __try {
-            nt_set_context_thread(target_thread, &initial_dbg_ctx);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-        }
-
-        if (real_thread_handle) {
-            nt_close(real_thread_handle);
-        }
-
-        SIZE_T free_size_cleanup = 0;
-        nt_free_virtual_memory(current_process, &src_page, &free_size_cleanup, MEM_RELEASE);
-        free_size_cleanup = 0;
-        nt_free_virtual_memory(current_process, &dst_page, &free_size_cleanup, MEM_RELEASE);
-
-        if (hook_detected || !ermsb_trap_detected) {
-            return true;
-        }
-
-        /*
-         * Kernel masks DR7 with DR7_LEGAL (0xFFFF0355), guaranteeing bit 13 GD is stripped
-         * before writing to hardware. Hypervisors intercepting MOV-DR often maintain an internal shadow DR7
-         * without sanitization. So if bit 13 persists, a hypervisor is present
-         */
-        bool gd_detected = false;
-        CONTEXT gd_ctx = initial_dbg_ctx;
-        gd_ctx.Dr7 |= (1 << 13);
-        if (nt_set_context_thread(current_thread, &gd_ctx) >= 0) {
-            CONTEXT verify_ctx{};
-            verify_ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-            if (nt_get_context_thread(current_thread, &verify_ctx) >= 0) {
-                if ((verify_ctx.Dr7 & (1 << 13)) != 0) {
-                    gd_detected = true;
-                }
-            }
-            /* Ensure bit 13 (GD) is cleared immediately so subsequent instructions never fault */
-            nt_set_context_thread(current_thread, &initial_dbg_ctx);
-        }
-
-        if (gd_detected) {
-            return true;
-        }
-
-        bool boundary_straddle_failed = false;
-        PVOID split_base = nullptr;
-        SIZE_T split_size = 0x2000; /* Two contiguous 4KB pages */
-
-        if (nt_allocate_virtual_memory(current_process, &split_base, 0, &split_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE) >= 0) {
-            /*
-             * We place a 15-byte prefixed multi-byte NOP instruction starting at
-             * offset 0xFF8 (8 bytes before the 4KB boundary at 0x1000):
-             *
-             * Page 0 (0xFF8..0xFFF - 8 bytes):
-             *   66 66 66 66 66 2E 0F 1F  ; 5x operand-size + CS segment prefix + 2 bytes of NOP
-             *
-             * Page 1 (0x1000..0x1006 - 7 bytes):
-             *   84 00 00 00 00 00 C3     ; Remaining 6 bytes of NOP + RET
-             *
-             * Emulators could fail when an instruction straddles two distinct EPT/NPT leaf entries
-             */
-            u8* page0 = static_cast<u8*>(split_base);
-            u8* page1 = page0 + 0x1000;
-
-            const u8 page0_bytes[] = { 0x66, 0x66, 0x66, 0x66, 0x66, 0x2E, 0x0F, 0x1F };
-            const u8 page1_bytes[] = { 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC3 };
-
-            memcpy(page0 + 0xFF8, page0_bytes, sizeof(page0_bytes));
-            memcpy(page1, page1_bytes, sizeof(page1_bytes));
-
-            /* Make page 1 RX, leaving Page 0 as RWX */
-            PVOID page1_addr = page1;
-            SIZE_T prot_size = 0x1000;
-            ULONG old_prot = 0;
-            nt_protect_virtual_memory(current_process, &page1_addr, &prot_size, PAGE_EXECUTE_READ, &old_prot);
-            nt_flush_instruction_cache(current_process, split_base, 0x2000);
-
-            __try {
-                memory::execute(page0 + 0xFF8);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                /* Hypervisor crashed, looped, or threw #UD/#GP across EPT boundary */
-                boundary_straddle_failed = true;
-            }
-
-            SIZE_T free_split_size = 0;
-            nt_free_virtual_memory(current_process, &split_base, &free_split_size, MEM_RELEASE);
-        }
-
-        return boundary_straddle_failed;
-    #endif
-    }
-
-
-    /**
      * @brief Check whether a hypervisor delays trap flags over exiting instructions
      * @category Windows, x86
      * @implements VM::SINGLE_STEP
      */
-    [[nodiscard]] static bool single_step() {
+    [[nodiscard]] static vmaware_technique single_step() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -15713,14 +12688,14 @@ public:
      * @author Idea by @NickEverdox (https://github.com/everdox)
      * @implements VM::EIP_OVERFLOW
      */
-    [[nodiscard]] static bool eip_overflow() {
-    #if (!VMAWARE_X86_64) 
+    [[nodiscard]] static vmaware_technique eip_overflow() {
+    #if (!VMAWARE_X86_64)
         /*
          * This requires mapping executable memory at the end of the 4GB address space (0xFFFF0000) so an instruction can wrap the 32 bit boundary
          * because NtAllocateVirtualMemory will always return 0xC0000018 (STATUS_CONFLICTING_ADDRESSES) we physically cannot place an instruction at 0xFFFFFFFE
          */
         return false;
-    #else   
+    #else
         #pragma pack(push, 1)
             struct iretq_frame {
                 u64 ip;
@@ -15899,7 +12874,7 @@ public:
         nt_free_virtual_memory(current_process, &stack32_base, &free_size, MEM_RELEASE);
 
         return hypervisor_detected;
-    #endif  
+    #endif
     }
 
 
@@ -15908,8 +12883,8 @@ public:
      * @category Windows, x86
      * @implements VM::SVM_EXCEPTIONS
      */
-    [[nodiscard]] static bool svm_exceptions() {
-    #if (VMAWARE_X86)   
+    [[nodiscard]] static vmaware_technique svm_exceptions() {
+    #if (VMAWARE_X86)
         if (!cpu::is_amd()) {
             vma_debug("SVM_EXCEPTIONS: AMD CPU not detected");
             return false;
@@ -15939,12 +12914,12 @@ public:
             return false; /* AMD CPUs only #UD if SVM is not active */
         }
 
-        /* 
+        /*
          * If we reach here, it means:
          * 1. An exception was triggered, since we're executing at CPL3
          * 2. That exception was not #UD, because the code would have returned in the branch above
          * 3. EFER.SVME is 1, because the exception was not #UD, so SVM is active
-         * 
+         *
          * If CPUID says SVM is not active (!svm_visible), it contradicts EFER.SVME being 1, it's a red flag
          * If there was no exception at all (!fault_hit), it contradicts our current CPL3 privilege, it's a red flag
          */
@@ -15956,7 +12931,7 @@ public:
         return true; /* If we reach here, we're sure an exception occurs (fault_hit is true), but was not #UD (must be a #GP), confirming EFER.SVME being 1 */
     #else
         return false;
-    #endif  
+    #endif
     }
 
 
@@ -15965,7 +12940,7 @@ public:
      * @category Windows
      * @implements VM::MEASURED_BOOT
      */
-    [[nodiscard]] static bool measured_boot() {
+    [[nodiscard]] static vmaware_technique measured_boot() {
         using TBS_RESULT = UINT32;
         using TBS_HCONTEXT = void*;
 
@@ -16187,7 +13162,7 @@ public:
             "Tbsi_Get_TCG_Log"
         };
         void* functions[ARRAYSIZE(function_names)] = {};
-        memory::get_function(tbs, function_names, functions, ARRAYSIZE(function_names), false);
+        memory::get_function(tbs, function_names, functions, ARRAYSIZE(function_names));
 
         tbsi_get_tcg_log_ex_fn tbsi_get_tcg_log_ex = reinterpret_cast<tbsi_get_tcg_log_ex_fn>(functions[0]);
         tbsi_context_create_fn tbsi_context_create = reinterpret_cast<tbsi_context_create_fn>(functions[1]);
@@ -16260,7 +13235,7 @@ public:
      * @category Windows
      * @implements VM::TPM
      */
-    [[nodiscard]] static bool tpm() {
+    [[nodiscard]] static vmaware_technique tpm() {
     #pragma pack(push, 1)
         struct tcg_pcr_event_header {
             u32 pcr_index;
@@ -16561,7 +13536,7 @@ public:
             if (resp_size < 10) {
                 return false;
             }
-            const u32 code = 
+            const u32 code =
                 (static_cast<u32>(resp[6]) << 24) |
                 (static_cast<u32>(resp[7]) << 16) |
                 (static_cast<u32>(resp[8]) << 8) |
@@ -16576,7 +13551,7 @@ public:
             if (offset + 4 > resp_size) {
                 return false;
             }
-            const u32 sel_count = 
+            const u32 sel_count =
                 (static_cast<u32>(resp[offset]) << 24) |
                 (static_cast<u32>(resp[offset + 1]) << 16) |
                 (static_cast<u32>(resp[offset + 2]) << 8) |
@@ -16594,10 +13569,10 @@ public:
             const u8 ret_sizeof_select = resp[offset];
             offset += 1 + ret_sizeof_select;
 
-            if (offset + 4 > resp_size) { 
+            if (offset + 4 > resp_size) {
                 return false;
             }
-            const u32 digest_count = 
+            const u32 digest_count =
                 (static_cast<u32>(resp[offset]) << 24) |
                 (static_cast<u32>(resp[offset + 1]) << 16) |
                 (static_cast<u32>(resp[offset + 2]) << 8) |
@@ -16608,7 +13583,7 @@ public:
                 return false;
             }
 
-            if (offset + 2 > resp_size) { 
+            if (offset + 2 > resp_size) {
                 return false;
             }
             const u16 digest_size = static_cast<u16>((resp[offset] << 8) | resp[offset + 1]);
@@ -16712,7 +13687,7 @@ public:
                 free_resources();
                 return false;
             }
-        }       
+        }
 
         auto be16 = [](const u8* p) -> u16 {
             return static_cast<u16>((static_cast<u16>(p[0]) << 8) | p[1]);
@@ -16901,7 +13876,7 @@ public:
             bool has_sha256 = false;
 
             for (u32 i = 0; i < digest_count; ++i) {
-                if (offset + 2 > log_size) { 
+                if (offset + 2 > log_size) {
                     parse_success = false;
                     break;
                 }
@@ -16915,15 +13890,15 @@ public:
                     break;
                 }
 
-                if (offset + size > log_size) { 
-                    parse_success = false; 
+                if (offset + size > log_size) {
+                    parse_success = false;
                     break;
                 }
 
                 if (alg_id == 0x000B) {
                     has_sha256 = true;
                 }
-                
+
                 if (temp_digest_count < 16) {
                     temp_digests[temp_digest_count].alg_id = alg_id;
                     temp_digests[temp_digest_count].size = size;
@@ -17012,7 +13987,7 @@ public:
      * @category Windows
      * @implements VM::VCPU_SCHEDULING
      */
-    [[nodiscard]] static bool vcpu_scheduling() {
+    [[nodiscard]] static vmaware_technique vcpu_scheduling() {
         /* Local descriptor representing a physical processor and its logical mask */
         struct physical_processor_entry {
             u32 physical_id;
@@ -17137,7 +14112,7 @@ public:
      * @category Windows, Linux, Apple
      * @implements VM::EMULATION
      */
-    [[nodiscard]] static bool emulation() noexcept {
+    [[nodiscard]] static vmaware_technique emulation() noexcept {
     #if (VMAWARE_X86)
         if (util::is_x86_process_on_arm()) {
             return false;
@@ -17368,106 +14343,78 @@ public:
     #pragma endregion
 #endif
 
-    /* ============================================================================================== *
-     *                                                                                                *                                                                                               *
-     *                                        CORE SECTION                                            *
-     *                                                                                                *
-     * ============================================================================================== */
     struct core {
         struct technique {
-            u8 points = 0; /* This is the certainty score between 0 and 100 */
-            bool(*run)();  /* This is the technique function itself */
+            u8 points;
+            vmaware_technique(*run)();
 
-            constexpr technique() noexcept : run(nullptr) {}
-            constexpr technique(u8 points, bool(*run)()) noexcept : points(points), run(run) {}
+            constexpr technique() noexcept
+                : points(0), run(nullptr) {
+            }
+
+            constexpr technique(u8 points, vmaware_technique(*run)()) noexcept
+                : points(points), run(run) {
+            }
         };
 
-        struct custom_technique { /* For custom techniques the user can implement */
+        struct custom_technique {
             u8 points;
             u16 id;
-            bool(*run)();
+            bool (*run)(); /* So that user-defined custom techniques don't need to know about internal result_t structures */
         };
 
-        /* Entry for the initialization list */
         struct technique_entry {
             enum_flags id;
             technique tech;
         };
 
-        /* Entry for brand scoreboard */
         struct brand_entry {
             brand_enum name;
             brand_score_t score;
         };
 
-        /*
-         * The actual table, which is derived from the list above and will be
-         * used for most functionalities related to technique interactions
-         */
-        static std::array<technique, enum_size + 1> technique_table;
+        struct execution_cache {
+            vmaware_technique cache[enum_size + 1];
+            bool executed[enum_size + 1];
+        };
 
-        static std::vector<VM::core::custom_technique> custom_table; /* Users should not have a limit of how many functions they should add, this is the only exception of a heap-allocated object in our core */
-        static size_t custom_table_size;
-
-        static std::array<brand_entry, MAX_BRANDS> brand_scoreboard;
-
-        /* Temporary storage to capture which brand was detected by the currently running technique. */
-        static brand_enum last_detected_brand;
-        static u8 last_detected_score;
-
-        /* 1. One brand, custom score */
-        static bool add(const brand_enum p_brand, const u8 score) noexcept {
-            return add_score(p_brand, brand_enum::NULL_BRAND, score);
+        static execution_cache& get_cache() noexcept {
+            static execution_cache ec{};
+            return ec;
         }
 
-        /* 2. One brand, default score */
-        static bool add(const brand_enum p_brand) noexcept {
-            return add_score(p_brand, brand_enum::NULL_BRAND, 0);
+        static std::vector<custom_technique>& get_custom_table() noexcept {
+            static std::vector<custom_technique> table;
+            return table;
         }
 
-        /* 3. Two brands, default score */
-        static bool add(const brand_enum p_brand, const brand_enum extra_brand) noexcept {
-            return add_score(p_brand, extra_brand, 0);
+        static flagset& get_disabled_flag_collector() noexcept {
+            static flagset collector;
+            return collector;
         }
 
-        static bool add_score(const brand_enum p_brand, const brand_enum extra_brand, const u8 score) noexcept {
-            if (p_brand != brand_enum::NULL_BRAND) {
-                last_detected_brand = p_brand;
-            }
-            else if (extra_brand != brand_enum::NULL_BRAND) {
-                last_detected_brand = extra_brand;
-            }
+        static const std::array<technique, enum_size + 1>& get_technique_table() noexcept;
 
-            if (score > 0) {
-                last_detected_score = score; /* Store for the engine to read */
-            }
-
-            constexpr size_t max_brands = sizeof(brand_scoreboard) / sizeof(brand_scoreboard[0]);
-
-            const u8 p_idx = static_cast<u8>(p_brand);
-            if (VMAWARE_LIKELY(p_idx < max_brands && p_brand != brand_enum::NULL_BRAND)) {
-                brand_scoreboard[p_idx].score++;
-            }
-
-            const u8 e_idx = static_cast<u8>(extra_brand);
-            if (extra_brand != brand_enum::NULL_BRAND && e_idx < max_brands) {
-                brand_scoreboard[e_idx].score++;
-            }
-
-            return true;
+        static constexpr vmaware_technique add(const brand_enum p_brand, const u8 score = 0) noexcept {
+            return vmaware_technique(true, p_brand, score);
         }
 
-        /* Assert if the flag is disabled, far better expression than typing std::bitset member functions */
+        static constexpr vmaware_technique add(const brand_enum p_brand, const brand_enum extra_brand) noexcept {
+            return vmaware_technique(true, p_brand, extra_brand, 0);
+        }
+
+        static constexpr vmaware_technique add_score(const brand_enum p_brand, const brand_enum extra_brand, const u8 score) noexcept {
+            return vmaware_technique(true, p_brand, extra_brand, score);
+        }
+
         [[nodiscard]] static constexpr bool is_disabled(const flagset& flags, const u8 flag_bit) noexcept {
             return flag_bit >= flags.size() || !flags.test(flag_bit);
         }
 
-        /* Assert if the flag is enabled */
         [[nodiscard]] static constexpr bool is_enabled(const flagset& flags, const u8 flag_bit) noexcept {
             return flag_bit < flags.size() && flags.test(flag_bit);
         }
 
-        /* Cache technique range mask */
         static flagset get_techniques_mask() noexcept {
             static const flagset mask = []() {
                 flagset m;
@@ -17476,11 +14423,9 @@ public:
                 }
                 return m;
             }();
-
             return mask;
         }
 
-        /* Cache settings range mask */
         static flagset get_settings_mask() noexcept {
             static const flagset mask = []() {
                 flagset m;
@@ -17489,7 +14434,6 @@ public:
                 }
                 return m;
             }();
-
             return mask;
         }
 
@@ -17501,187 +14445,82 @@ public:
             return (flags & get_settings_mask()).any();
         }
 
-        /* Run every VM detection mechanism in the technique table */
-        static u16 run_all(const flagset& flags, const bool shortcut = false) noexcept {
+        struct run_result {
             u16 points = 0;
-            detected_count_num = 0;
+            u8 detected_count = 0;
+            std::array<brand_score_t, MAX_BRANDS> brand_scores{};
 
-            /* Reset scoreboard at the start of a run to prevent score leakage */
-            for (size_t i = 0; i < MAX_BRANDS; ++i) {
-                brand_scoreboard[i].score = 0;
-                brand_scoreboard[i].name = static_cast<brand_enum>(i);
+            constexpr operator u16() const noexcept {
+                return points;
             }
+        };
 
+        static run_result run_all(const flagset& flags, const bool shortcut = false) noexcept {
+            run_result result{};
             const u16 threshold_points = core::is_enabled(flags, HIGH_THRESHOLD) ? high_threshold_score : threshold_score;
+            const auto& tech_table = get_technique_table();
+            auto& ec = get_cache();
 
-            const size_t tech_limit = technique_table.size(); /* (enum_size + 1) */
+            /* 1. Built - in techniques loop */
             for (size_t i = technique_begin; i < technique_end; ++i) {
-                VMAWARE_ASSUME(i < tech_limit);
+                const technique& tech = tech_table[i];
 
-                const enum_flags technique_macro = static_cast<enum_flags>(i);
-                const technique& technique_data = technique_table[i];
-
-                /* Skip empty entries */
-                if (!technique_data.run) {
+                if (!tech.run || core::is_disabled(flags, static_cast<u8>(i))) {
                     continue;
                 }
 
-                /* Check if the technique is disabled */
-                if (core::is_disabled(flags, technique_macro)) {
-                    continue;
-                }
-
-                /* Check if the technique is cached already */
-                if (memo::is_cached(technique_macro)) {
-                    const memo::data_t data = memo::cache_fetch(technique_macro);
-
-                    if (data.result) {
-                        points += data.points;
-                        detected_count_num++;
-
-                        if (data.brand_name != brand_enum::NULL_BRAND) {
-                            add(data.brand_name);
-                        }
-                    }
-
-                    /*
-                     * For things like VM::detect() and VM::percentage(),
-                     * a score of 150+ is guaranteed to be a VM, so
-                     * there's no point in running the rest of the techniques
-                     * (unless the threshold is set to be higher, but it's the
-                     * same story here nonetheless, except the threshold is 300)
-                     */
-                    if (shortcut && (points >= threshold_points)) {
-                        return points;
-                    }
-
-                    continue;
-                }
-
-                /* Reset the last detected brand before running */
-                last_detected_brand = brand_enum::NULL_BRAND;
-                last_detected_score = 0;
-
-                /* Snapshot scoreboard to prevent score leakage if technique returns false */
-                const auto scoreboard_snapshot = brand_scoreboard;
-
-                /* Run the technique */
-                const bool result = technique_data.run();
-
-                if (result) {
-                    /* Determine which points to use: Override or Default */
-                    const u8 points_to_add = (last_detected_score > 0) ? last_detected_score : technique_data.points;
-
-                    points += points_to_add;
-                    /*
-                     * This is specific to VM::detected_count() which
-                     * returns the number of techniques that found a VM.
-                     */
-                    detected_count_num++;
-
-                    /* Retrieve the brand that was set during execution (if any) */
-                    const enum brand_enum detected_brand = last_detected_brand;
-                    /* Store the current technique result to the cache */
-                    memo::cache_store(technique_macro, result, points_to_add, detected_brand);
+                vmaware_technique res;
+                if (ec.executed[i]) {
+                    res = ec.cache[i];
                 }
                 else {
-                    brand_scoreboard = scoreboard_snapshot;
-                    last_detected_brand = brand_enum::NULL_BRAND;
-                    last_detected_score = 0;
-                    memo::cache_store(technique_macro, false, 0);
+                    res = tech.run();
+                    ec.cache[i] = res;
+                    ec.executed[i] = true;
                 }
 
-                /*
-                 * For things like VM::detect() and VM::percentage(),
-                 * a score of 150+ is guaranteed to be a VM, so
-                 * there's no point in running the rest of the techniques
-                 * (unless the threshold is set to be higher, but it's the
-                 * same story here nonetheless, except the threshold is 300)
-                 */
-                if (shortcut && (points >= threshold_points)) {
-                    return points;
+                if (res.detected) {
+                    const u8 pts = (res.score > 0) ? res.score : tech.points;
+                    result.points += pts;
+                    result.detected_count++;
+
+                    if (res.brand != brand_enum::NULL_BRAND) {
+                        result.brand_scores[static_cast<size_t>(res.brand)]++;
+                    }
+                    if (res.extra_brand != brand_enum::NULL_BRAND) {
+                        result.brand_scores[static_cast<size_t>(res.extra_brand)]++;
+                    }
                 }
-            }
 
-            /* For custom VM techniques, won't be used most of the time */
-            if (VMAWARE_UNLIKELY(!core::custom_table.empty())) {
-                for (const auto& technique : core::custom_table) {
-                    if (shortcut && (points >= threshold_points)) {
-                        return points;
-                    }
-
-                    /* Skip empty entries */
-                    if (!technique.run) {
-                        continue;
-                    }
-
-                    /* If cached, return that result */
-                    if (memo::is_cached(technique.id)) {
-                        const memo::data_t data = memo::cache_fetch(technique.id);
-
-                        if (data.result) {
-                            points += data.points;
-                            detected_count_num++;
-
-                            if (data.brand_name != brand_enum::NULL_BRAND) {
-                                add(data.brand_name);
-                            }
-                        }
-
-                        if (shortcut && (points >= threshold_points)) {
-                            return points;
-                        }
-
-                        continue;
-                    }
-
-                    /* Reset the last detected brand before running */
-                    last_detected_brand = brand_enum::NULL_BRAND;
-                    last_detected_score = 0;
-
-                    const auto scoreboard_snapshot = brand_scoreboard;
-
-                    /* Run the custom technique */
-                    const bool result = technique.run();
-
-                    /* Accumulate a few important values */
-                    if (result) {
-                        const u8 points_to_add = (last_detected_score > 0) ? last_detected_score : technique.points;
-
-                        points += points_to_add;
-                        detected_count_num++;
-
-                        /* Retrieve the brand that was set during execution (if any) */
-                        const enum brand_enum detected_brand = last_detected_brand;
-
-                        /* Cache the result */
-                        memo::cache_store(
-                            technique.id,
-                            result,
-                            points_to_add,
-                            detected_brand
-                        );
-                    }
-                    else {
-                        brand_scoreboard = scoreboard_snapshot;
-                        last_detected_brand = brand_enum::NULL_BRAND;
-                        last_detected_score = 0;
-                        memo::cache_store(technique.id, false, 0);
-                    }
-
-                    if (shortcut && (points >= threshold_points)) {
-                        return points;
-                    }
+                if (shortcut && (result.points >= threshold_points)) {
+                    return result;
                 }
             }
 
-            return points;
+            /* 2. Custom techniques loop */
+            for (const auto& custom : get_custom_table()) {
+                if (!custom.run) {
+                    continue;
+                }
+
+                const bool res = custom.run();
+                if (res) {
+                    result.points += custom.points;
+                    result.detected_count++;
+                }
+
+                if (shortcut && (result.points >= threshold_points)) {
+                    return result;
+                }
+            }
+
+            return result;
         }
 
         static flagset flag_collector;
         static flagset disabled_flag_collector;
 
-        /* Alternative settings method */
+        /* Settings management */
         struct settings {
             flagset flag_collector = generate_default();
 
@@ -17720,15 +14559,13 @@ public:
                 flagset f;
                 f.set();
 
-                /* Disable all disabled techniques */
-                for (const auto id : disabled_techniques) {
+                for (const auto id : get_disabled_techniques()) {
                     const auto idx = static_cast<size_t>(id);
                     if (idx < f.size()) {
                         f.reset(idx);
                     }
                 }
 
-                /* Disable all the settings flags except for VM::DEFAULT */
                 f.reset(EXPERIMENTAL);
                 f.reset(HIGH_THRESHOLD);
                 f.reset(NULL_ARG);
@@ -17749,7 +14586,7 @@ public:
         static flagset generate_all() {
             flagset flags = generate_default();
 
-            for (const enum_flags technique : disabled_techniques) {
+            for (const enum_flags technique : get_disabled_techniques()) {
                 const auto idx = static_cast<size_t>(technique);
                 if (idx < flags.size()) {
                     flags.set(idx, true);
@@ -17764,11 +14601,11 @@ public:
         }
 
         static void reset_disabled_flagset() {
-            disabled_flag_collector.reset();
-            for (const auto technique : disabled_techniques) {
+            get_disabled_flag_collector().reset();
+            for (const auto technique : get_disabled_techniques()) {
                 const auto idx = static_cast<size_t>(technique);
-                if (idx < disabled_flag_collector.size()) {
-                    disabled_flag_collector.set(idx, true);
+                if (idx < get_disabled_flag_collector().size()) {
+                    get_disabled_flag_collector().set(idx, true);
                 }
             }
         }
@@ -17785,35 +14622,31 @@ public:
         static void disable_experimental_techniques() {
             for (const auto technique : experimental_techniques) {
                 const auto idx = static_cast<size_t>(technique);
-                if (idx < disabled_flag_collector.size()) {
-                    disabled_flag_collector.set(idx, true);
+                if (idx < get_disabled_flag_collector().size()) {
+                    get_disabled_flag_collector().set(idx, true);
                 }
             }
         }
 
-        /* SFINAE base case for compile-time validation of zero arguments */
         template <typename... Args>
         static constexpr typename std::enable_if<sizeof...(Args) == 0, bool>::type
             verify_flags() noexcept {
             return true;
         }
 
-        /* Recursive compile-time validation for 1 or more arguments */
         template <typename T, typename... Args>
         static constexpr bool verify_flags() noexcept {
             return std::is_same<typename std::decay<T>::type, enum_flags>::value&& verify_flags<Args...>();
         }
 
-        /* Overload for zero arguments to prevent C4127 constant conditional warning */
         static flagset arg_handler() noexcept {
             flagset collector;
             generate_default(collector);
-            collector &= ~disabled_flag_collector;
-            disabled_flag_collector.reset();
+            collector &= ~get_disabled_flag_collector();
+            get_disabled_flag_collector().reset();
             return collector;
         }
 
-        /* Terminates recursion when all variadic arguments have been processed */
         template <typename flagset_type>
         static inline void populate_flagset(flagset_type&) noexcept {}
 
@@ -17823,7 +14656,6 @@ public:
             populate_flagset(collector, tail...);
         }
 
-        /* Overload for 1 or more arguments */
         template <typename T, typename... Args>
         static VMAWARE_CONSTEXPR flagset arg_handler(T first, Args... args) {
             static_assert(verify_flags<T, Args...>(), "argument handler only accepts enum_flags variables");
@@ -17850,13 +14682,12 @@ public:
                 collector.reset(EXPERIMENTAL);
             }
 
-            collector &= ~disabled_flag_collector;
-            disabled_flag_collector.reset();
+            collector &= ~get_disabled_flag_collector();
+            get_disabled_flag_collector().reset();
 
             return collector;
         }
 
-        /* Same as above but for VM::disable which only accepts technique flags */
         template <typename... Args>
         static void disabled_arg_handler(Args... args) {
             static_assert(verify_flags<Args...>(), "disabled argument handler only accepts enum_flags variables");
@@ -17868,16 +14699,15 @@ public:
                 0, (temp.set(static_cast<size_t>(args), true), 0)...
             };
 
-            /* Check if a settings flag is set, which is not valid */
             if (core::is_setting_flag_set(temp)) {
                 throw std::invalid_argument("VM::DISABLE() must not contain a settings flag, they are disabled by default anyway");
             }
 
-            disabled_flag_collector |= temp;
+            get_disabled_flag_collector() |= temp;
         }
     };
 
-// START OF PUBLIC FUNCTIONS
+    // START OF PUBLIC FUNCTIONS
 
     using settings = core::settings;
 
@@ -17897,7 +14727,6 @@ public:
         VMAWARE_UNUSED(loc);
     #endif
         if (VMAWARE_UNLIKELY(util::is_unsupported(flag_bit))) {
-            memo::cache_store(flag_bit, false, 0);
             return false;
         }
 
@@ -17927,32 +14756,23 @@ public:
             throw_error("Flag argument must be a technique flag and not a settings flag");
         }
 
-        /* If the technique is already cached, return the cached value instead */
-        if (memo::is_cached(flag_bit)) {
-            const memo::data_t data = memo::cache_fetch(flag_bit);
-            return data.result;
-        }
-
         if (flag_bit >= technique_end) {
             return false;
         }
 
-        /* VMAWARE_ASSUME(flag_bit < core::technique_table.size()); */
-        const core::technique& pair = core::technique_table.at(flag_bit);
+        const core::technique& pair = core::get_technique_table().at(flag_bit);
 
         if (auto run_fn = pair.run) {
-            core::last_detected_brand = brand_enum::NULL_BRAND;
-            core::last_detected_score = 0;
-
-            const bool result = run_fn();
-            const u8 points_to_add = (core::last_detected_score > 0) ? core::last_detected_score : pair.points;
-
-            if (result) {
-                detected_count_num++;
+            auto& ec = core::get_cache();
+            if (ec.executed[flag_bit]) {
+                return ec.cache[flag_bit].detected;
             }
 
-            memo::cache_store(flag_bit, result, result ? points_to_add : 0, core::last_detected_brand);
-            return result;
+            const vmaware_technique res = run_fn();
+            ec.cache[flag_bit] = res;
+            ec.executed[flag_bit] = true;
+
+            return res.detected;
         }
 
         throw_error("Flag is not known or not implemented");
@@ -18117,9 +14937,9 @@ public:
         if (VMAWARE_UNLIKELY(percent > 100)) {
             throw_error("Percentage parameter must be between 0 and 100");
         }
-        /* VMAWARE_ASSUME(percent <= 100); */
 
-        const size_t current_index = core::custom_table.size();
+        auto& table = core::get_custom_table();
+        const size_t current_index = table.size();
 
         const core::custom_technique query{
             percent,
@@ -18127,9 +14947,7 @@ public:
             detection_func
         };
 
-        technique_count++;
-
-        core::custom_table.push_back(query);
+        table.push_back(query);
     }
 
 
@@ -18156,96 +14974,106 @@ public:
      */
     [[nodiscard]] static std::string flag_to_string(const enum_flags flag) {
         switch (flag) {
-            // START OF TECHNIQUE LIST
-            case VMID: return "VMID";
-            case CPU_BRAND: return "CPU_BRAND";
-            case HYPERVISOR_BIT: return "HYPERVISOR_BIT";
-            case HYPERVISOR_STR: return "HYPERVISOR_STR";
-            case TIMER: return "TIMER";
-            case THREAD_COUNT: return "THREAD_COUNT";
-            case MAC: return "MAC";
-            case TEMPERATURE: return "TEMPERATURE";
-            case SYSTEMD: return "SYSTEMD";
-            case CVENDOR: return "CVENDOR";
-            case CTYPE: return "CTYPE";
-            case DOCKERENV: return "DOCKERENV";
-            case DMIDECODE: return "DMIDECODE";
-            case DMESG: return "DMESG";
-            case HWMON: return "HWMON";
-            case DLL: return "DLL";
-            case HWMODEL: return "HWMODEL";
-            case WINE: return "WINE";
-            case POWER_CAPABILITIES: return "POWER_CAPABILITIES";
-            case PROCESSES: return "PROCESSES";
-            case LINUX_USER_HOST: return "LINUX_USER_HOST";
-            case GAMARUE: return "GAMARUE";
-            case BOCHS_CPU: return "BOCHS_CPU";
-            case MAC_MEMSIZE: return "MAC_MEMSIZE";
-            case MAC_IOKIT: return "MAC_IOKIT";
-            case IOREG_GREP: return "IOREG_GREP";
-            case MAC_SIP: return "MAC_SIP";
-            case VPC_INVALID: return "VPC_INVALID";
-            case SYSTEM_REGISTERS: return "SYSTEM_REGISTERS";
-            case VMWARE_STR: return "VMWARE_STR";
-            case MUTEX: return "MUTEX";
-            case THREAD_MISMATCH: return "THREAD_MISMATCH";
-            case CUCKOO: return "CUCKOO";
-            case AZURE: return "AZURE";
-            case DISPLAY: return "DISPLAY";
-            case BLUESTACKS_FOLDERS: return "BLUESTACKS_FOLDERS";
-            case CPUID_SIGNATURE: return "CPUID_SIGNATURE";
-            case KGT_SIGNATURE: return "KGT_SIGNATURE";
-            case QEMU_VIRTUAL_DMI: return "QEMU_VIRTUAL_DMI";
-            case QEMU_USB: return "QEMU_USB";
-            case HYPERVISOR_DIR: return "HYPERVISOR_DIR";
-            case UML_CPU: return "UML_CPU";
-            case KMSG: return "KMSG";
-            case VBOX_MODULE: return "VBOX_MODULE";
-            case SYSINFO_PROC: return "SYSINFO_PROC";
-            case DMI_SCAN: return "DMI_SCAN";
-            case SMBIOS_VM_BIT: return "SMBIOS_VM_BIT";
-            case PODMAN_FILE: return "PODMAN_FILE";
-            case WSL_PROC: return "WSL_PROC";
-            case DRIVERS: return "DRIVERS";
-            case DISK: return "DISK";
-            case GPU_CAPABILITIES: return "GPU_CAPABILITIES";
-            case HANDLES: return "HANDLES";
-            case QEMU_FW_CFG: return "QEMU_FW_CFG";
-            case VIRTUAL_PROCESSORS: return "VIRTUAL_PROCESSORS";
-            case AMD_SEV_MSR: return "AMD_SEV_MSR";
-            case VIRTUAL_REGISTRY: return "VIRTUAL_REGISTRY";
-            case FIRMWARE: return "FIRMWARE";
-            case CONTAINER_PID: return "CONTAINER_PID";
-            case DEVICES: return "DEVICES";
-            case ACPI_SIGNATURE: return "ACPI_SIGNATURE";
-            case TRAP: return "TRAP";
-            case UD: return "UD";
-            case INTERRUPT_SHADOW: return "INTERRUPT_SHADOW";
-            case DBVM: return "DBVM";
-            case BOOT_LOGO: return "BOOT_LOGO";
-            case MAC_SYS: return "MAC_SYS";
-            case KERNEL_OBJECTS: return "KERNEL_OBJECTS";
-            case NVRAM: return "NVRAM";
-            case CPU_HEURISTIC: return "CPU_HEURISTIC";
-            case MSR: return "MSR";
-            case KVM_INTERCEPTION: return "KVM_INTERCEPTION";
-            case HYPERVISOR_HOOK: return "HYPERVISOR_HOOK";
-            case SINGLE_STEP: return "SINGLE_STEP";
-            case EIP_OVERFLOW: return "EIP_OVERFLOW";
-            case SVM_EXCEPTIONS: return "SVM_EXCEPTIONS";
-            case CGROUP: return "CGROUP";
-            case MEASURED_BOOT: return "MEASURED_BOOT";
-            case TPM: return "TPM";
-            case VCPU_SCHEDULING: return "VCPU_SCHEDULING";
-            case EMULATION: return "EMULATION";
-            /* END OF TECHNIQUE LIST */
-            case DEFAULT: return "DEFAULT"; 
-            case ALL: return "ALL"; 
-            case NULL_ARG: return "NULL_ARG"; 
-            case HIGH_THRESHOLD: return "HIGH_THRESHOLD"; 
-            case DYNAMIC: return "DYNAMIC"; 
-            case MULTIPLE: return "MULTIPLE"; 
-            default: return "Unknown flag";
+            /* Cross-platform & Architecture */
+            case VMID:                return "VMID";
+            case CPU_BRAND:           return "CPU_BRAND";
+            case HYPERVISOR_BIT:      return "HYPERVISOR_BIT";
+            case HYPERVISOR_STR:      return "HYPERVISOR_STR";
+            case TIMER:               return "TIMER";
+            case CPUID_SIGNATURE:     return "CPUID_SIGNATURE";
+            case BOCHS_CPU:           return "BOCHS_CPU";
+            case KGT_SIGNATURE:       return "KGT_SIGNATURE";
+
+            /* Windows */
+            case GPU_CAPABILITIES:    return "GPU_CAPABILITIES";
+            case ACPI_SIGNATURE:      return "ACPI_SIGNATURE";
+            case POWER_CAPABILITIES:  return "POWER_CAPABILITIES";
+            case DRIVERS:             return "DRIVERS";
+            case HANDLES:             return "HANDLES";
+            case VIRTUAL_PROCESSORS:  return "VIRTUAL_PROCESSORS";
+            case DISPLAY:             return "DISPLAY";
+            case DLL:                 return "DLL";
+            case WINE:                return "WINE";
+            case VIRTUAL_REGISTRY:    return "VIRTUAL_REGISTRY";
+            case MUTEX:               return "MUTEX";
+            case VPC_INVALID:         return "VPC_INVALID";
+            case VMWARE_STR:          return "VMWARE_STR";
+            case GAMARUE:             return "GAMARUE";
+            case CUCKOO:              return "CUCKOO";
+            case TRAP:                return "TRAP";
+            case UD:                  return "UD";
+            case INTERRUPT_SHADOW:    return "INTERRUPT_SHADOW";
+            case DBVM:                return "DBVM";
+            case KERNEL_OBJECTS:      return "KERNEL_OBJECTS";
+            case NVRAM:               return "NVRAM";
+            case CPU_HEURISTIC:       return "CPU_HEURISTIC";
+            case MSR:                 return "MSR";
+            case KVM_INTERCEPTION:    return "KVM_INTERCEPTION";
+            case SINGLE_STEP:         return "SINGLE_STEP";
+            case EIP_OVERFLOW:        return "EIP_OVERFLOW";
+            case SVM_EXCEPTIONS:      return "SVM_EXCEPTIONS";
+            case MEASURED_BOOT:       return "MEASURED_BOOT";
+            case TPM:                 return "TPM";
+            case VCPU_SCHEDULING:     return "VCPU_SCHEDULING";
+            case EMULATION:           return "EMULATION";
+
+            /* Linux and Windows */
+            case SYSTEM_REGISTERS:    return "SYSTEM_REGISTERS";
+            case FIRMWARE:            return "FIRMWARE";
+            case DEVICES:             return "DEVICES";
+            case AZURE:               return "AZURE";
+            case BOOT_LOGO:           return "BOOT_LOGO";
+            case DISK:                return "DISK";
+
+            /* Linux */
+            case SMBIOS_VM_BIT:       return "SMBIOS_VM_BIT";
+            case KMSG:                return "KMSG";
+            case CVENDOR:             return "CVENDOR";
+            case QEMU_FW_CFG:         return "QEMU_FW_CFG";
+            case SYSTEMD:             return "SYSTEMD";
+            case CTYPE:               return "CTYPE";
+            case DOCKERENV:           return "DOCKERENV";
+            case DMIDECODE:           return "DMIDECODE";
+            case DMESG:               return "DMESG";
+            case HWMON:               return "HWMON";
+            case LINUX_USER_HOST:     return "LINUX_USER_HOST";
+            case QEMU_VIRTUAL_DMI:    return "QEMU_VIRTUAL_DMI";
+            case QEMU_USB:            return "QEMU_USB";
+            case HYPERVISOR_DIR:      return "HYPERVISOR_DIR";
+            case UML_CPU:             return "UML_CPU";
+            case VBOX_MODULE:         return "VBOX_MODULE";
+            case SYSINFO_PROC:        return "SYSINFO_PROC";
+            case DMI_SCAN:            return "DMI_SCAN";
+            case PODMAN_FILE:         return "PODMAN_FILE";
+            case WSL_PROC:            return "WSL_PROC";
+            case MAC:                 return "MAC";
+            case CONTAINER_PID:       return "CONTAINER_PID";
+            case BLUESTACKS_FOLDERS:  return "BLUESTACKS_FOLDERS";
+            case AMD_SEV_MSR:         return "AMD_SEV_MSR";
+            case TEMPERATURE:         return "TEMPERATURE";
+            case CGROUP:              return "CGROUP";
+            case PROCESSES:           return "PROCESSES";
+
+            /* Linux and MacOS */
+            case THREAD_COUNT:        return "THREAD_COUNT";
+
+            /* MacOS */
+            case MAC_MEMSIZE:         return "MAC_MEMSIZE";
+            case MAC_IOKIT:           return "MAC_IOKIT";
+            case MAC_SIP:             return "MAC_SIP";
+            case IOREG_GREP:          return "IOREG_GREP";
+            case HWMODEL:             return "HWMODEL";
+            case MAC_SYS:             return "MAC_SYS";
+
+           /* Settings */
+            case DEFAULT:             return "DEFAULT";
+            case ALL:                 return "ALL";
+            case NULL_ARG:            return "NULL_ARG";
+            case HIGH_THRESHOLD:      return "HIGH_THRESHOLD";
+            case DYNAMIC:             return "DYNAMIC";
+            case MULTIPLE:            return "MULTIPLE";
+
+            default:                  return "Unknown flag";
         }
     }
 
@@ -18306,8 +15134,7 @@ public:
 
 
     static u8 detected_count(const flagset& flags = core::generate_default()) {
-        core::run_all(flags); /* run all the techniques, which will set the detected_count variable */
-        return detected_count_num;
+        return core::run_all(flags).detected_count;
     }
 
 
@@ -18337,7 +15164,7 @@ public:
                 return "Unknown";
             }
         }
-    
+
         const enum brand_enum brand = brands::brand_single(list);
 
         switch (brand) {
@@ -18437,12 +15264,8 @@ public:
 
 
     static std::string conclusion(const flagset& flags = core::generate_default()) {
-        if (memo::conclusion::is_cached(flags)) {
-            return memo::conclusion::fetch();
-        }
-
         const u8 percent_tmp = percentage(flags);
-        
+
         constexpr const char* very_unlikely = "Very unlikely";
         constexpr const char* unlikely = "Unlikely";
         constexpr const char* potentially = "Potentially";
@@ -18450,7 +15273,7 @@ public:
         constexpr const char* likely = "Likely";
         constexpr const char* very_likely = "Very likely";
         constexpr const char* inside_vm = "Running inside";
-        
+
         auto make_conclusion = [&](const char* category) -> std::string {
             const brand_list_t& list = brands::brand_list(flags);
 
@@ -18464,8 +15287,8 @@ public:
              * name. It would look weird if the conclusion
              * message was "an VirtualBox" or "a Anubis"
              */
-            if 
-            ( 
+            if
+            (
                 (first_brand == brand_enum::ACRN)        ||
                 (first_brand == brand_enum::ANUBIS)      ||
                 (first_brand == brand_enum::BSD_VMM)     ||
@@ -18480,8 +15303,8 @@ public:
                 (first_brand == brand_enum::AMD_SEV)     ||
                 (first_brand == brand_enum::AMD_SEV_ES)  ||
                 (first_brand == brand_enum::AMD_SEV_SNP) ||
-                (first_brand == brand_enum::NULL_BRAND)              
-            )   
+                (first_brand == brand_enum::NULL_BRAND)
+            )
             {             addition = " an ";             }
 
             std::string brand_str;
@@ -18492,24 +15315,22 @@ public:
              */
             if (first_brand == brand_enum::NULL_BRAND) {
                 brand_str = "unknown";
-            } 
+            }
             else {
                 if (core::is_enabled(flags, MULTIPLE)) {
                     brand_str = brands::brand_multiple(flags);
-                } 
+                }
                 else {
                     brand_str = brands::brand_enum_to_string(first_brand);
                 }
             }
 
-            const std::string result = 
-                std::string(category) + 
-                addition + 
-                brand_str + 
+            const std::string result =
+                std::string(category) +
+                addition +
+                brand_str +
                 /* Hyper-V artifacts are an exception due to how unique the circumstance is */
                 (first_brand == brand_enum::HYPERV_ROOT ? "" : " VM");
-
-            memo::conclusion::store(result.c_str(), flags);
 
             return result;
         };
@@ -18529,6 +15350,10 @@ public:
         }
 
         return "Running on bare metal";
+    }
+
+    inline static u16 technique_count() noexcept {
+        return static_cast<u16>(base_technique_count + core::get_custom_table().size());
     }
 
     struct vmaware {
@@ -18561,7 +15386,8 @@ public:
             is_vm = VM::detect(flags);
             percentage = VM::percentage(flags);
             detected_count = VM::detected_count(flags);
-            technique_count = VM::technique_count;
+            technique_count = VM::technique_count();
+            disabled_techniques = VM::get_disabled_techniques();
             detected_techniques = VM::detected_enums(flags);
             detected_technique_strings = [&]() -> std::vector<std::string> {
                 std::vector<std::string> tmp{};
@@ -18573,199 +15399,119 @@ public:
 
                 return tmp;
             }();
-
-            disabled_techniques = VM::disabled_techniques;
         }
 
     };
 };
 
-// ============= EXTERNAL DEFINITIONS =============
-/*
- * These are added here due to warnings related to C++17 inline variables for C++ standards that are under 17
- * It's easier to just group them together rather than having C++17<= preprocessors with inline stuff
- */
-char VM::memo::conclusion::cache[512] = { 0 };
-bool VM::memo::conclusion::cached = false;
-
-/* Scoreboard list of brands, if a VM detection technique detects a brand, that will be incremented here as a single point */
-std::array<VM::core::brand_entry, VM::MAX_BRANDS> VM::core::brand_scoreboard = []() {
-    std::array<VM::core::brand_entry, VM::MAX_BRANDS> arr{};
-
-    for (u8 i = 0; i < MAX_BRANDS; i++) {
-        arr.at(i) = { static_cast<brand_enum>(i), 0 };
-    }
-
-    return arr;
-}();
-
-static_assert(VM::core::brand_scoreboard.size() == VM::MAX_BRANDS, "brand_scoreboard size must match MAX_BRANDS.");
-
-/* Initial definitions for cache items because C++ forbids in-class initializations */
-VM::flagset VM::memo::conclusion::cached_flags{};
-VM::flagset VM::memo::single_brand::cached_flags{};
-VM::flagset VM::memo::multi_brand::cached_flags{};
-VM::flagset VM::memo::brand_list::cached_flags{};
-VM::brand_list_t VM::memo::brand_list::cache = {};
-VM::hyperx_state VM::memo::hyperx::state = VM::HYPERV_UNKNOWN;
-std::array<VM::memo::cache_entry, VM::enum_size + 1> VM::memo::cache_table{};
-std::array<VM::memo::leaf_entry, VM::memo::leaf_cache::CAPACITY> VM::memo::leaf_cache::table{};
-std::string VM::memo::multi_brand::brand_cache;
-std::size_t VM::memo::leaf_cache::count = 0;
-std::size_t VM::memo::leaf_cache::next_index = 0;
-enum VM::brand_enum VM::memo::single_brand::brand_cache = brand_enum::NULL_BRAND;
-char VM::memo::cpu_brand::brand_cache[128] = { 0 };
-char VM::memo::bios_info::manufacturer[256] = { 0 };
-char VM::memo::bios_info::model[256] = { 0 };
-bool VM::memo::bios_info::cached_manufacturer;
-bool VM::memo::bios_info::cached_model;
-bool VM::memo::single_brand::cached = false;
-bool VM::memo::multi_brand::cached = false;
-bool VM::memo::cpu_brand::cached = false;
-bool VM::memo::hyperx::cached = false;
-bool VM::memo::brand_list::cached = false;
-
-enum VM::brand_enum VM::core::last_detected_brand = VM::brand_enum::NULL_BRAND;
-VM::u8 VM::core::last_detected_score = 0;
-
-/*
- * These are basically the base values for the core::arg_handler function.
- * It's like a bucket that will collect all the bits enabled. If for example
- * VM::detect(VM::HIGH_THRESHOLD) is passed, the HIGH_THRESHOLD bit will be
- * collected to this flagset (std::bitset) variable, and eventually be provided
- * as the return value for actual end-user functions like VM::detect() to operate on.
- */
-VM::flagset VM::core::flag_collector;
-VM::flagset VM::core::disabled_flag_collector;
-
-VM::u8 VM::detected_count_num = 0;
-
-std::vector<VM::enum_flags> VM::disabled_techniques = []() {
-    std::vector<VM::enum_flags> c;
-    return c;
-}();
-
-/* This value is incremented each time VM::add_custom is called */
-VM::u16 VM::technique_count = VM::base_technique_count;
-
-/* This is initialised as empty, because this is where custom techniques can be added at runtime */
-std::vector<VM::core::custom_technique> VM::core::custom_table = {};
-size_t VM::core::custom_table_size = 0;
-
-/* The points are debatable, but we think it's fine how it is. Feel free to disagree */
-std::array<VM::core::technique, VM::enum_size + 1> VM::core::technique_table = []() {
-    std::array<VM::core::technique, VM::enum_size + 1> table{};
-    /* FORMAT: { VM::<ID>, { certainty%, function pointer } }, */
-    const VM::core::technique_entry entries[] = {
-        // START OF TECHNIQUE TABLE
+inline const std::array<VM::core::technique, VM::enum_size + 1>& VM::core::get_technique_table() noexcept {
+    static const std::array<technique, enum_size + 1> table = []() {
+        std::array<technique, enum_size + 1> tbl{};
+        const technique_entry entries[] = {
         #if (VMAWARE_WINDOWS)
-            {VM::TRAP, {150, VM::trap}},
-            {VM::KVM_INTERCEPTION, {150, VM::kvm_interception}},
-            {VM::SVM_EXCEPTIONS, {35, VM::svm_exceptions}},
-            {VM::MEASURED_BOOT, {150, VM::measured_boot}},
-            {VM::INTERRUPT_SHADOW, {150, VM::interrupt_shadow}},
-            {VM::EIP_OVERFLOW, {150, VM::eip_overflow}},
-            {VM::HYPERVISOR_HOOK, {150, VM::hypervisor_hook}},
-            {VM::SINGLE_STEP, {150, VM::single_step}},
-            {VM::TPM, {45, VM::tpm}},
-            {VM::VCPU_SCHEDULING, {100, VM::vcpu_scheduling}},
-            {VM::NVRAM, {100, VM::nvram}},
-            {VM::CPU_HEURISTIC, {90, VM::cpu_heuristic}},
-            {VM::ACPI_SIGNATURE, {100, VM::acpi_signature}},
-            {VM::POWER_CAPABILITIES, {25, VM::power_capabilities}},
-            {VM::GPU_CAPABILITIES, {20, VM::gpu_capabilities}},
-            {VM::MSR, {100, VM::msr}},
-            {VM::VIRTUAL_PROCESSORS, {100, VM::virtual_processors}},
-            {VM::WINE, {150, VM::wine}},
-            {VM::DBVM, {150, VM::dbvm}},
-            {VM::UD, {100, VM::ud}},
-            {VM::DRIVERS, {100, VM::drivers}},
-            {VM::HANDLES, {100, VM::device_handles}},
-            {VM::KERNEL_OBJECTS, {100, VM::kernel_objects}},
-            {VM::EMULATION, {100, VM::emulation}},
-            {VM::DLL, {50, VM::dll}},
-            {VM::DISPLAY, {25, VM::display}},
-            {VM::VIRTUAL_REGISTRY, {100, VM::virtual_registry}},
-            {VM::MUTEX, {100, VM::mutex}},
-            {VM::VPC_INVALID, {75, VM::vpc_invalid}},
-            {VM::VMWARE_STR, {35, VM::vmware_str}},
-            {VM::GAMARUE, {30, VM::gamarue}},
-            {VM::CUCKOO, {30, VM::cuckoo}},
+            { VM::TRAP,{ 150, VM::trap } },
+            { VM::KVM_INTERCEPTION,{ 150, VM::kvm_interception } },
+            { VM::SVM_EXCEPTIONS,{ 35, VM::svm_exceptions } },
+            { VM::MEASURED_BOOT,{ 150, VM::measured_boot } },
+            { VM::INTERRUPT_SHADOW,{ 150, VM::interrupt_shadow } },
+            { VM::EIP_OVERFLOW,{ 150, VM::eip_overflow } },
+            { VM::SINGLE_STEP,{ 150, VM::single_step } },
+            { VM::TPM,{ 45, VM::tpm } },
+            { VM::VCPU_SCHEDULING,{ 100, VM::vcpu_scheduling } },
+            { VM::NVRAM,{ 100, VM::nvram } },
+            { VM::CPU_HEURISTIC,{ 90, VM::cpu_heuristic } },
+            { VM::ACPI_SIGNATURE,{ 100, VM::acpi_signature } },
+            { VM::POWER_CAPABILITIES,{ 25, VM::power_capabilities } },
+            { VM::GPU_CAPABILITIES,{ 20, VM::gpu_capabilities } },
+            { VM::MSR,{ 100, VM::msr } },
+            { VM::VIRTUAL_PROCESSORS,{ 100, VM::virtual_processors } },
+            { VM::WINE,{ 150, VM::wine } },
+            { VM::DBVM,{ 150, VM::dbvm } },
+            { VM::UD,{ 100, VM::ud } },
+            { VM::DRIVERS,{ 100, VM::drivers } },
+            { VM::HANDLES,{ 100, VM::device_handles } },
+            { VM::KERNEL_OBJECTS,{ 100, VM::kernel_objects } },
+            { VM::EMULATION,{ 100, VM::emulation } },
+            { VM::DLL,{ 50, VM::dll } },
+            { VM::DISPLAY,{ 25, VM::display } },
+            { VM::VIRTUAL_REGISTRY,{ 100, VM::virtual_registry } },
+            { VM::MUTEX,{ 100, VM::mutex } },
+            { VM::VPC_INVALID,{ 75, VM::vpc_invalid } },
+            { VM::VMWARE_STR,{ 35, VM::vmware_str } },
+            { VM::GAMARUE,{ 30, VM::gamarue } },
+            { VM::CUCKOO,{ 30, VM::cuckoo } },
         #endif
 
         #if (VMAWARE_LINUX || VMAWARE_WINDOWS)
-            {VM::FIRMWARE, {100, VM::firmware}},
-            {VM::DEVICES, {95, VM::devices}},
-            {VM::SYSTEM_REGISTERS, {50, VM::system_registers}},
-            {VM::AZURE, {30, VM::azure}},
-            {VM::BOOT_LOGO, {90, VM::boot_logo}},
-            {VM::DISK, {150, VM::disk}},
+            { VM::FIRMWARE,{ 100, VM::firmware } },
+            { VM::DEVICES,{ 95, VM::devices } },
+            { VM::SYSTEM_REGISTERS,{ 50, VM::system_registers } },
+            { VM::AZURE,{ 30, VM::azure } },
+            { VM::BOOT_LOGO,{ 90, VM::boot_logo } },
+            { VM::DISK,{ 150, VM::disk } },
         #endif
 
         #if (VMAWARE_LINUX)
-            {VM::SMBIOS_VM_BIT, {50, VM::smbios_vm_bit}},
-            {VM::KMSG, {5, VM::kmsg}},
-            {VM::CVENDOR, {65, VM::chassis_vendor}},
-            {VM::QEMU_FW_CFG, {70, VM::qemu_fw_cfg}},
-            {VM::SYSTEMD, {35, VM::systemd_virt}},
-            {VM::CTYPE, {20, VM::chassis_type}},
-            {VM::DOCKERENV, {100, VM::dockerenv}},
-            {VM::DMIDECODE, {55, VM::dmidecode}},
-            {VM::DMESG, {55, VM::dmesg}},
-            {VM::HWMON, {35, VM::hwmon}},
-            {VM::LINUX_USER_HOST, {10, VM::linux_user_host}},
-            {VM::QEMU_VIRTUAL_DMI, {40, VM::qemu_virtual_dmi}},
-            {VM::QEMU_USB, {20, VM::qemu_usb}},
-            {VM::HYPERVISOR_DIR, {20, VM::hypervisor_dir}},
-            {VM::UML_CPU, {80, VM::uml_cpu}},
-            {VM::VBOX_MODULE, {15, VM::vbox_module}},
-            {VM::SYSINFO_PROC, {15, VM::sysinfo_proc}},
-            {VM::DMI_SCAN, {50, VM::dmi_scan}},
-            {VM::PODMAN_FILE, {5, VM::podman_file}},
-            {VM::WSL_PROC, {30, VM::wsl_proc_subdir}},
-            {VM::MAC, {20, VM::mac_address_check}},
-            {VM::CONTAINER_PID, {75, VM::container_proc_id}},
-            {VM::BLUESTACKS_FOLDERS, {5, VM::bluestacks}},
-            {VM::AMD_SEV_MSR, {50, VM::amd_sev_msr}},
-            {VM::TEMPERATURE, {20, VM::temperature}},
-            {VM::CGROUP, {70, VM::cgroup}},
-            {VM::PROCESSES, {40, VM::processes}},
-        #endif    
+            { VM::SMBIOS_VM_BIT,{ 50, VM::smbios_vm_bit } },
+            { VM::KMSG,{ 5, VM::kmsg } },
+            { VM::CVENDOR,{ 65, VM::chassis_vendor } },
+            { VM::QEMU_FW_CFG,{ 70, VM::qemu_fw_cfg } },
+            { VM::SYSTEMD,{ 35, VM::systemd_virt } },
+            { VM::CTYPE,{ 20, VM::chassis_type } },
+            { VM::DOCKERENV,{ 100, VM::dockerenv } },
+            { VM::DMIDECODE,{ 55, VM::dmidecode } },
+            { VM::DMESG,{ 55, VM::dmesg } },
+            { VM::HWMON,{ 35, VM::hwmon } },
+            { VM::LINUX_USER_HOST,{ 10, VM::linux_user_host } },
+            { VM::QEMU_VIRTUAL_DMI,{ 40, VM::qemu_virtual_dmi } },
+            { VM::QEMU_USB,{ 20, VM::qemu_usb } },
+            { VM::HYPERVISOR_DIR,{ 20, VM::hypervisor_dir } },
+            { VM::UML_CPU,{ 80, VM::uml_cpu } },
+            { VM::VBOX_MODULE,{ 15, VM::vbox_module } },
+            { VM::SYSINFO_PROC,{ 15, VM::sysinfo_proc } },
+            { VM::DMI_SCAN,{ 50, VM::dmi_scan } },
+            { VM::PODMAN_FILE,{ 5, VM::podman_file } },
+            { VM::WSL_PROC,{ 30, VM::wsl_proc_subdir } },
+            { VM::MAC,{ 20, VM::mac_address_check } },
+            { VM::CONTAINER_PID,{ 75, VM::container_proc_id } },
+            { VM::BLUESTACKS_FOLDERS,{ 5, VM::bluestacks } },
+            { VM::AMD_SEV_MSR,{ 50, VM::amd_sev_msr } },
+            { VM::TEMPERATURE,{ 20, VM::temperature } },
+            { VM::CGROUP,{ 70, VM::cgroup } },
+            { VM::PROCESSES,{ 40, VM::processes } },
+        #endif
 
         #if (VMAWARE_LINUX || VMAWARE_APPLE)
-            {VM::THREAD_COUNT, {35, VM::thread_count}},
+            { VM::THREAD_COUNT,{ 35, VM::thread_count } },
         #endif
 
         #if (VMAWARE_APPLE)
-            {VM::MAC_MEMSIZE, {15, VM::hw_memsize}},
-            {VM::MAC_IOKIT, {100, VM::io_kit}},
-            {VM::MAC_SIP, {100, VM::mac_sip}},
-            {VM::IOREG_GREP, {100, VM::ioreg_grep}},
-            {VM::HWMODEL, {100, VM::hwmodel}},
-            {VM::MAC_SYS, {100, VM::mac_sys}},
+            { VM::MAC_MEMSIZE,{ 15, VM::hw_memsize } },
+            { VM::MAC_IOKIT,{ 100, VM::io_kit } },
+            { VM::MAC_SIP,{ 100, VM::mac_sip } },
+            { VM::IOREG_GREP,{ 100, VM::ioreg_grep } },
+            { VM::HWMODEL,{ 100, VM::hwmodel } },
+            { VM::MAC_SYS,{ 100, VM::mac_sys } },
         #endif
 
-        {VM::TIMER, {45, VM::timer}},
-        {VM::THREAD_MISMATCH, {45, VM::thread_mismatch}},
-        {VM::VMID, {100, VM::vmid}},
-        {VM::CPU_BRAND, {95, VM::cpu_brand}},
-        {VM::CPUID_SIGNATURE, {95, VM::cpuid_signature}},
-        {VM::HYPERVISOR_STR, {150, VM::hypervisor_str}},
-        {VM::HYPERVISOR_BIT, {150, VM::hypervisor_bit}},
-        {VM::BOCHS_CPU, {100, VM::bochs_cpu}},
-        {VM::KGT_SIGNATURE, {80, VM::intel_kgt_signature}}
-        /* END OF TECHNIQUE TABLE */
-    };
+            { VM::TIMER,{ 45, VM::timer } },
+            { VM::VMID,{ 100, VM::vmid } },
+            { VM::CPU_BRAND,{ 95, VM::cpu_brand } },
+            { VM::CPUID_SIGNATURE,{ 95, VM::cpuid_signature } },
+            { VM::HYPERVISOR_STR,{ 150, VM::hypervisor_str } },
+            { VM::HYPERVISOR_BIT,{ 150, VM::hypervisor_bit } },
+            { VM::BOCHS_CPU,{ 100, VM::bochs_cpu } },
+            { VM::KGT_SIGNATURE,{ 80, VM::intel_kgt_signature } }
+        };
 
-    /* Fill the table based on ID */
-    for (const auto& entry : entries) {
-        if (entry.id < table.size()) {
-            table.at(entry.id) = entry.tech;
+        for (const auto& entry : entries) {
+            if (static_cast<size_t>(entry.id) < tbl.size()) {
+                tbl.at(entry.id) = entry.tech;
+            }
         }
-    }
+        return tbl;
+    }();
     return table;
-}();
-
-static_assert(VM::core::technique_table.size() == VM::enum_size + 1, "technique_table must map to every enum value.");
+}
 
 #endif /* VMAWARE_HEADER */

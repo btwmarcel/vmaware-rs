@@ -121,6 +121,7 @@ unsafe extern "C" {
     fn vmaware_conclusion(out: *mut *mut c_char, err: *mut *mut c_char) -> bool;
     fn vmaware_detected_count(out: *mut u8, err: *mut *mut c_char) -> bool;
     fn vmaware_brand(out: *mut *mut c_char, err: *mut *mut c_char, multiple: bool) -> bool;
+    fn vmaware_technique_count() -> u16;
     fn free_string(s: *mut c_char);
 }
 
@@ -281,7 +282,7 @@ pub fn brand(multiple: bool) -> Result<String, VmawareError> {
 }
 
 pub fn technique_count() -> u16 {
-    unsafe { bindings::VM_technique_count }
+    unsafe { vmaware_technique_count() }
 }
 
 #[allow(non_camel_case_types, non_snake_case, dead_code)]

@@ -8,6 +8,7 @@ extern "C" {
     bool vmaware_percentage(std::uint8_t* out, char** err) noexcept;
     bool vmaware_conclusion(char** out, char** err) noexcept;
     bool vmaware_detected_count(std::uint8_t* out, char** err) noexcept;
+    std::uint16_t vmaware_technique_count() noexcept;
     bool vmaware_brand(char** out, char** err, bool multiple) noexcept;
     void free_string(char* s) noexcept;
 }

@@ -29,7 +29,6 @@ fn main() {
         .clang_arg("c++")
         .clang_arg("-std=c++20")
         .allowlist_type("VM_enum_flags")
-        .allowlist_var("VM_technique_count")
         .rustified_enum("VM_enum_flags")
         .parse_callbacks(Box::new(renamer));
 

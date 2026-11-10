@@ -31,7 +31,7 @@ namespace {
         return out;
     }
 
-} 
+}
 
 extern "C" {
 
@@ -206,8 +206,8 @@ extern "C" {
         }
 
         try {
-            *out = multiple 
-                ? copy_string(VM::brand(VM::MULTIPLE)) 
+            *out = multiple
+                ? copy_string(VM::brand(VM::MULTIPLE))
                 : copy_string(VM::brand());
 
             return true;
@@ -226,8 +226,12 @@ extern "C" {
         }
     }
 
+    std::uint16_t vmaware_technique_count() noexcept {
+        return VM::technique_count();
+    }
+
     void free_string(char* value) noexcept {
         std::free(value);
     }
 
-} 
+}
