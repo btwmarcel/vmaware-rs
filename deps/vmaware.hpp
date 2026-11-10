@@ -38,7 +38,7 @@
     #ifndef WIN32_LEAN_AND_MEAN
         #define WIN32_LEAN_AND_MEAN
     #endif
-
+    
     #define VMAWARE_WINDOWS 1
     #define VMAWARE_LINUX 0
     #define VMAWARE_APPLE 0
@@ -65,7 +65,7 @@
 #endif
 
 /* =========================================================================
- * COMPILER DETECTION
+ * COMPILER DETECTION 
  * ========================================================================= */
 #if defined(__clang__)
     #define VMAWARE_CLANG 1
@@ -109,11 +109,11 @@
 #else
     #error "Unsupported C++ standard (pre-C++98 or unknown)."
 #endif
-
+    
 #if (VMAWARE_CPP < 11)
     #error "VMAware only supports C++11 or above, set your compiler flag to '-std=c++20' for gcc/clang, or '/std:c++20' for MSVC"
 #endif
-
+      
 /* =========================================================================
  * ARCHITECTURE DETECTION
  * ========================================================================= */
@@ -140,7 +140,7 @@
 #else
     #define VMAWARE_X86 0
 #endif
-
+    
 #if (defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_LINUX_COMPILER__) || defined(__arm64__)) && !VMAWARE_ARM64EC
     #define VMAWARE_ARM64 1
 #else
@@ -152,7 +152,7 @@
 #else
     #define VMAWARE_ARM32 0
 #endif
-
+    
 #if VMAWARE_ARM32 || VMAWARE_ARM64
     #define VMAWARE_ARM 1
 #else
@@ -160,7 +160,7 @@
 #endif
 
 /* =========================================================================
- * FEATURE TEST MACROS
+ * FEATURE TEST MACROS 
  * ========================================================================= */
 #if (VMAWARE_CPP >= 20) && defined(__has_include)
     #if __has_include(<source_location>)
@@ -353,7 +353,7 @@
     #else
         #define VMAWARE_SERIALIZE
     #endif
-#else
+#else 
     #define VMAWARE_VECTORCALL
     #define VMAWARE_TARGET_AVX
     #define VMAWARE_TARGET_AVX2
@@ -436,7 +436,7 @@
     #include <sys/ioctl.h>
     #include <sys/syscall.h>
     #include <sys/sysinfo.h>
-    #include <net/if.h>
+    #include <net/if.h> 
     #include <netinet/in.h>
     #include <unistd.h>
     #include <dirent.h>
@@ -444,11 +444,11 @@
     #include <cctype>
     #include <fcntl.h>
     #include <climits>
-    #include <csignal>
-    #include <csetjmp>
-    #include <pthread.h>
-    #include <sched.h>
-    #include <cerrno>
+    #include <csignal>      
+    #include <csetjmp>      
+    #include <pthread.h>     
+    #include <sched.h>      
+    #include <cerrno>   
 #elif (VMAWARE_APPLE)
     #if (VMAWARE_X86)
         #include <cpuid.h>
@@ -464,7 +464,7 @@
     #include <chrono>
 #endif
 
-#if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1
+#if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1 
     #define vma_debug(...) VM::util::debug_msg(__VA_ARGS__)
 #else
     #define vma_debug(...)
@@ -735,7 +735,7 @@ public:
         EIP_OVERFLOW,
         SVM_EXCEPTIONS,
         MEASURED_BOOT,
-        TPM,
+        TPM, 
         VCPU_SCHEDULING,
         EMULATION,
 
@@ -1060,7 +1060,7 @@ public:
                 d = static_cast<u32>(regs[3]);
             #else
                 __cpuid_count(leaf, subleaf, a, b, c, d);
-            #endif
+            #endif  
         #else
             VMAWARE_UNUSED(leaf);
             VMAWARE_UNUSED(subleaf);
@@ -1115,7 +1115,7 @@ public:
         }
 
         [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) {
-        #if (VMAWARE_APPLE)
+        #if (VMAWARE_APPLE) 
             return false;
         #endif
             bool cached = false;
@@ -1124,7 +1124,7 @@ public:
                 return cached;
             }
 
-            u32 eax = 0;
+            u32 eax = 0; 
             u32 unused = 0;
             bool supported = false;
 
@@ -1434,7 +1434,7 @@ public:
             }
 
             return false;
-        }
+        } 
     };
 
     template <std::size_t N>
@@ -1692,7 +1692,7 @@ public:
 
     #if (VMAWARE_MSVC)
         #pragma warning(push)
-        #pragma warning(disable: 4324)
+        #pragma warning(disable: 4324) 
     #endif
         /* Align to prevent false sharing when triggering hypervisor exits with the intentional data race condition */
         struct alignas(64) cache_state {
@@ -1761,7 +1761,7 @@ public:
             }
         };
 
-        struct scheduler {
+        struct scheduler {         
             /*
               - Golden Rules (must happen ALWAYS; if they don't happen the check should be aborted):
               - 1. The check needs AT LEAST two different physical cores, so if one single core is detected, returns {}
@@ -2876,7 +2876,7 @@ public:
                 !(flag >= LINUX_START && flag <= LINUX_END);
             #elif (VMAWARE_WINDOWS)
                 !(flag >= WINDOWS_START && flag <= WINDOWS_END);
-            #elif (VMAWARE_APPLE)
+            #elif (VMAWARE_APPLE) 
                 !(flag >= MACOS_START && flag <= MACOS_END);
             #else
                 false;
@@ -3305,7 +3305,7 @@ public:
         #else
             VMAWARE_UNUSED(executable);
             return false;
-        #endif
+        #endif  
         }
 
 
@@ -3373,7 +3373,7 @@ public:
                         }
                     }
                 #endif
-            #endif
+            #endif  
 
                 if (cpu::is_leaf_supported(cpu::leaf::hypervisor)) {
                     const std::string vendor = cpu::cpu_manufacturer(cpu::leaf::hypervisor);
@@ -4023,7 +4023,7 @@ public:
             if (ret == 0) {
                 const DWORD err = GetLastError();
                 if (err == ERROR_CALL_NOT_IMPLEMENTED || err == ERROR_PATH_NOT_FOUND) {
-                    return true;
+                    return true; 
                 }
                 return true;
             }
@@ -4548,7 +4548,7 @@ public:
                     const brand_element_t& a,
                     const brand_element_t& b
                 ) {
-                    return a.second > b.second; /* .second is brand score */
+                    return a.second > b.second; /* .second is brand score */  
                 } );
             }
 
@@ -4633,7 +4633,7 @@ public:
 
             return "Invalid";
         }
-
+        
         static std::string brand_multiple(const brand_list_t& list) {
             std::string buffer = {};
             buffer += brands::brand_enum_to_string(list[0].first);
@@ -4754,8 +4754,8 @@ public:
         return false;
     #else
         u32 eax = 0;
-        u32 ebx = 0;
-        u32 ecx = 0;
+        u32 ebx = 0; 
+        u32 ecx = 0; 
         u32 edx = 0;
 
         cpu::cpuid(eax, ebx, ecx, edx, cpu::leaf::features);
@@ -4807,9 +4807,9 @@ public:
         );
 
         return (strlen(out + 4) >= 4);
-    #endif
+    #endif  
     }
-
+    
 
     /**
      * @brief Check for various Bochs-related emulation oversights through CPU checks
@@ -4885,7 +4885,7 @@ public:
         return false;
     #endif
     }
-
+      
 
     /**
      * @brief Check for CPUID signatures that reveal the presence of a hypervisor
@@ -4920,18 +4920,18 @@ public:
             }
 
             u32 l1_eax = 0;
-            u32 l1_ebx = 0;
-            u32 l1_ecx = 0;
+            u32 l1_ebx = 0; 
+            u32 l1_ecx = 0; 
             u32 l1_edx = 0;
-
+            
             u32 vb_eax = 0;
-            u32 vb_ebx = 0;
-            u32 vb_ecx = 0;
+            u32 vb_ebx = 0; 
+            u32 vb_ecx = 0; 
             u32 vb_edx = 0;
-
+            
             u32 v1f_eax = 0;
-            u32 v1f_ebx = 0;
-            u32 v1f_ecx = 0;
+            u32 v1f_ebx = 0; 
+            u32 v1f_ecx = 0; 
             u32 v1f_edx = 0;
 
             u32 aba_start = 0;
@@ -4959,8 +4959,8 @@ public:
                 cpu::cpuid(unused, l1_ebx, unused, unused, cpu::leaf::features, 0);
                 aba_end = (l1_ebx >> 24) & 0xFF;
 
-                if (aba_start == aba_end || ++retries >= 8) {
-                    break;
+                if (aba_start == aba_end || ++retries >= 8) { 
+                    break; 
                 }
             }
 
@@ -5040,8 +5040,8 @@ public:
         return false;
     #endif
     }
-
-
+                
+                
     /**
      * @brief Check for Intel KGT (Trusty branch) hypervisor signature in CPUID
      * @link https://github.com/intel/ikgt-core/blob/7dfd4d1614d788ec43b02602cce7a272ef8d5931/vmm/vmexit/vmexit_cpuid.c
@@ -5053,7 +5053,7 @@ public:
         return false;
     #else
         u32 unused = 0;
-        u32 ecx = 0;
+        u32 ecx = 0; 
         u32 edx = 0;
         cpu::cpuid(unused, unused, ecx, edx, cpu::leaf::hv_privileges);
 
@@ -5394,14 +5394,14 @@ public:
 
                             v_pre = *counter_ptr;
                             std::atomic_signal_fence(std::memory_order_seq_cst); /* _ReadWriteBarrier() aka dont emit runtime fences */
-                        #if (VMAWARE_GCC || VMAWARE_CLANG)
+                        #if (VMAWARE_GCC || VMAWARE_CLANG)  
                             size_t a = 0;
                             size_t b = 0, c = 0, d = 0;
                             __asm__ volatile (
                                 "cpuid"
                                 : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
                             );
-                        #else
+                        #else   
                             int dummy[4];
                             __cpuid(dummy, 0);
                         #endif
@@ -5455,7 +5455,7 @@ public:
                                 "cpuid"
                                 : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
                             );
-                            #else
+                            #else   
                             int dummy[4];
                             __cpuid(dummy, 0);
                         #endif
@@ -5811,18 +5811,18 @@ public:
         struct fdguard {
             int fd;
             explicit fdguard(int fd = -1) : fd(fd) {}
-            ~fdguard() {
-                if (fd != -1) {
-                    ::close(fd);
-                }
+            ~fdguard() { 
+                if (fd != -1) { 
+                    ::close(fd); 
+                } 
             }
-            int get() const {
-                return fd;
+            int get() const { 
+                return fd; 
             }
-            int release() {
-                const int tmp = fd;
-                fd = -1;
-                return tmp;
+            int release() { 
+                const int tmp = fd; 
+                fd = -1; 
+                return tmp; 
             }
         };
 
@@ -5900,16 +5900,16 @@ public:
         if (prefix == VBOX) {
             return core::add(brand_enum::VBOX);
         }
-
+        
         if (prefix == VMW1 || prefix == VMW2
             || prefix == VMW3 || prefix == VMW4) {
             return core::add(brand_enum::VMWARE);
         }
-
+        
         if (prefix == XEN) {
             return core::add(brand_enum::XEN);
         }
-
+        
         if (prefix == PAR) {
             return core::add(brand_enum::PARALLELS);
         }
@@ -6124,13 +6124,13 @@ public:
             return false;
         }
 
-        if (result & (static_cast<u64>(1) << 2)) {
-            return core::add(brand_enum::AMD_SEV_SNP);
+        if (result & (static_cast<u64>(1) << 2)) { 
+            return core::add(brand_enum::AMD_SEV_SNP); 
         }
-        if (result & (static_cast<u64>(1) << 1)) {
-            return core::add(brand_enum::AMD_SEV_ES);
+        if (result & (static_cast<u64>(1) << 1)) { 
+            return core::add(brand_enum::AMD_SEV_ES); 
         }
-        if (result & 1) {
+        if (result & 1) { 
             return core::add(brand_enum::AMD_SEV);
         }
 
@@ -6219,7 +6219,7 @@ public:
             if (
                 (entry->d_name[0] == '.' && entry->d_name[1] == '\0') ||
                 (entry->d_name[1] == '.' && entry->d_name[2] == '\0')
-               )
+               ) 
             {
                 continue;
             }
@@ -6274,7 +6274,7 @@ public:
         }
 
         return false;
-    }
+    } 
 
 
     /**
@@ -6306,7 +6306,7 @@ public:
             if (bytes_read > 0) {
                 *(buffer + bytes_read) = '\0';
                 ss << buffer;
-                empty_reads = 0;
+                empty_reads = 0; 
             }
             else if (bytes_read == 0) {
                 if (++empty_reads >= MAX_EMPTY_READS) {
@@ -6385,7 +6385,7 @@ public:
         }
 
         return false;
-    }
+    } 
 
 
     /**
@@ -6489,7 +6489,7 @@ public:
         vma_debug("SMBIOS_VM_BIT: ", "content.at(19) = ", static_cast<int>(content.at(19)));
 
         return (content.at(19) & (1 << 4));
-    }
+    } 
 
 
     /**
@@ -6541,7 +6541,7 @@ public:
         if (
             (util::find(osrelease, "WSL") || util::find(osrelease, "Microsoft")) &&
             (util::find(version,   "WSL") || util::find(version,   "Microsoft"))
-           )
+           ) 
         {
             return core::add(brand_enum::WSL);
         }
@@ -6655,7 +6655,7 @@ public:
      */
     [[nodiscard]] static vmaware_technique cgroup() {
         const std::string contents = util::read_file("/proc/self/cgroup");
-
+        
         if (contents.empty()) {
             return false;
         }
@@ -6751,7 +6751,7 @@ public:
      * @brief Check for Task Segment and Descriptor Table instructions (SGDT, SLDT, SMSW, SIDT)
      * @category Windows, Linux, x86, x86_32
      * @implements VM::SYSTEM_REGISTERS
-     *
+     * 
      * --- SGDT ---
      * @note code documentation paper in /papers/www.offensivecomputing.net_vm.pdf (top-most byte signature)
      *
@@ -6766,7 +6766,7 @@ public:
      * --- SIDT ---
      * @author Matteo Malvica
      * @author Idea to check VPC's range from Tom Liston and Ed Skoudis' paper "On the Cutting Edge: Thwarting Virtual Machine Detection" (Windows)
-     *
+     * 
      */
     [[nodiscard]] static vmaware_technique system_registers() {
         if (util::is_x86_process_on_arm()) {
@@ -6938,7 +6938,7 @@ public:
 
                         /* Technique 3: SIDT(x86 & x64) */
                         if (!found) {
-                        #if (VMAWARE_X86_64)
+                        #if (VMAWARE_X86_64)        
                             u8 idtr_buffer[10] = { 0 };
                         #else
                             u8 idtr_buffer[6] = { 0 };
@@ -8214,12 +8214,12 @@ public:
                     return true;
 
                 /* VMware */
-                case 0x15ad0710: case 0x15ad0720: case 0x15ad0770: case 0x15ad0774:
-                case 0x15ad0778: case 0x15ad0779: case 0x15ad0790: case 0x15ad07a0:
-                case 0x15ad07b0: case 0x15ad07c0: case 0x15ad07e0: case 0x15ad07f0:
-                case 0x15ad0801: case 0x15ad0820: case 0x15ad1977: case 0xfffe0710:
-                case 0x0e0f0001: case 0x0e0f0002: case 0x0e0f0003: case 0x0e0f0004:
-                case 0x0e0f0005: case 0x0e0f0006: case 0x0e0f000a: case 0x0e0f8001:
+                case 0x15ad0710: case 0x15ad0720: case 0x15ad0770: case 0x15ad0774: 
+                case 0x15ad0778: case 0x15ad0779: case 0x15ad0790: case 0x15ad07a0: 
+                case 0x15ad07b0: case 0x15ad07c0: case 0x15ad07e0: case 0x15ad07f0: 
+                case 0x15ad0801: case 0x15ad0820: case 0x15ad1977: case 0xfffe0710: 
+                case 0x0e0f0001: case 0x0e0f0002: case 0x0e0f0003: case 0x0e0f0004: 
+                case 0x0e0f0005: case 0x0e0f0006: case 0x0e0f000a: case 0x0e0f8001: 
                 case 0x0e0f8002: case 0x0e0f8003: case 0x0e0ff80a:
                     vma_debug("DEVICES: Detected VMWARE device -> 0x", std::hex, id32);
                     return core::add(brand_enum::VMWARE);
@@ -8280,7 +8280,7 @@ public:
                 case 0x0000000010221100ULL:
                     vma_debug("DEVICES: Detected QEMU device -> 0x", std::hex, id64);
                     return core::add(brand_enum::QEMU);
-
+    
                 case 0x0000000015ad0800ULL:  /* Hypervisor ROM Interface */
                     vma_debug("DEVICES: Detected Hypervisor ROM interface -> 0x", std::hex, id64);
                     return core::add(brand_enum::VMWARE);
@@ -8288,7 +8288,7 @@ public:
                 default: break;
             }
         }
-
+        
         return false;
     }
 
@@ -8304,7 +8304,7 @@ public:
         __attribute__((__target__("crc32")))
     #endif
     {
-    #if (VMAWARE_X86_64)
+    #if (VMAWARE_X86_64)       
         #if (VMAWARE_WINDOWS)
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
@@ -8419,7 +8419,7 @@ public:
     #endif
     }
 
-
+    
     /**
     * @brief Check for presence of virtual disks
     * @category Windows
@@ -9099,7 +9099,7 @@ public:
         }
 
         return (memo::thread_count::fetch() <= 2);
-    #else
+    #else 
         return false;
     #endif
     }
@@ -9110,14 +9110,14 @@ public:
     #pragma region "Apple"
 #endif
 
-#if (VMAWARE_APPLE)
+#if (VMAWARE_APPLE) 
     /**
      * @brief Check if the sysctl for the hwmodel does not contain the "Mac" string
      * @author MacRansom ransomware
      * @category MacOS
      * @implements VM::HWMODEL
      */
-    [[nodiscard]] static vmaware_technique hwmodel() {
+    [[nodiscard]] static vmaware_technique hwmodel() {      
         /* Hw.model strings are short (like for example MacBookPro16,1), 128 bytes is plenty */
         char buffer[128] = { 0 };
         size_t size = sizeof(buffer);
@@ -9424,7 +9424,7 @@ public:
         return false;
     }
 
-
+             
     /**
      * @brief Check for Wine Is Not An Emulator artifacts
      * @category Windows
@@ -9671,7 +9671,7 @@ public:
 
         return false;
     }
-
+ 
 
     /**
      * @brief Check for presence of VPC
@@ -9888,7 +9888,7 @@ public:
         void* functions[ARRAYSIZE(function_names)] = {};
         memory::get_function(ntdll, function_names, functions, ARRAYSIZE(function_names));
 
-        using nt_openfile_t =
+        using nt_openfile_t = 
             NTSTATUS(__stdcall*)(PHANDLE FileHandle, ACCESS_MASK DesiredAccess,
             POBJECT_ATTRIBUTES ObjectAttributes, PIO_STATUS_BLOCK IoStatusBlock,
             ULONG ShareAccess, ULONG OpenOptions);
@@ -10231,7 +10231,7 @@ public:
                 return false;
             }
 
-            // If the driver cannot adjust the display gamma ramp dynamically but only in full-screen mode—via the IDirect3DDevice9::SetGammaRamp API
+            // If the driver cannot adjust the display gamma ramp dynamically but only in full-screen mode—via the IDirect3DDevice9::SetGammaRamp API 
             return !(caps.Caps2 & D3DCAPS2_FULLSCREENGAMMA);
         */
 
@@ -10372,7 +10372,7 @@ public:
         return false;
     }
 
-
+    
     /**
      * @brief Check for particular object directory which is present in Sandboxie virtual environment but not in usual host systems
      * @category Windows
@@ -10523,8 +10523,8 @@ public:
         }
         return false;
     }
-
-
+    
+    
     /**
      * @brief Check for VM-specific ACPI device signatures
      * @category Windows
@@ -11208,7 +11208,7 @@ public:
     }
 
     /**
-     * @brief Check for any signs of VMs in Windows kernel object entities
+     * @brief Check for any signs of VMs in Windows kernel object entities 
      * @category Windows
      * @implements VM::KERNEL_OBJECTS
      */
@@ -11328,7 +11328,7 @@ public:
             const uintptr_t name_ptr = reinterpret_cast<uintptr_t>(object_dir_info->Name.Buffer);
 
             if (name_bytes == 0 || (name_bytes % sizeof(wchar_t) != 0) || (name_ptr % sizeof(wchar_t) != 0)) {
-                continue;
+                continue; 
             }
 
             const uintptr_t buf_base = reinterpret_cast<uintptr_t>(buffer.data());
@@ -11336,7 +11336,7 @@ public:
             const uintptr_t min_valid_ptr = buf_base + sizeof(OBJECT_DIRECTORY_INFORMATION);
 
             if (name_ptr < min_valid_ptr || name_ptr >= buf_end || name_bytes >(buf_end - name_ptr)) {
-                continue;
+                continue; 
             }
 
             const auto* wname = reinterpret_cast<const wchar_t*>(name_ptr);
@@ -12357,7 +12357,7 @@ public:
 
         constexpr u32 random_msr = 0xDEADBEEFu;
 
-    #if (VMAWARE_GCC || VMAWARE_CLANG)
+    #if (VMAWARE_GCC || VMAWARE_CLANG) 
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) return false;
 
@@ -12689,13 +12689,13 @@ public:
      * @implements VM::EIP_OVERFLOW
      */
     [[nodiscard]] static vmaware_technique eip_overflow() {
-    #if (!VMAWARE_X86_64)
+    #if (!VMAWARE_X86_64) 
         /*
          * This requires mapping executable memory at the end of the 4GB address space (0xFFFF0000) so an instruction can wrap the 32 bit boundary
          * because NtAllocateVirtualMemory will always return 0xC0000018 (STATUS_CONFLICTING_ADDRESSES) we physically cannot place an instruction at 0xFFFFFFFE
          */
         return false;
-    #else
+    #else   
         #pragma pack(push, 1)
             struct iretq_frame {
                 u64 ip;
@@ -12874,7 +12874,7 @@ public:
         nt_free_virtual_memory(current_process, &stack32_base, &free_size, MEM_RELEASE);
 
         return hypervisor_detected;
-    #endif
+    #endif  
     }
 
 
@@ -12884,7 +12884,7 @@ public:
      * @implements VM::SVM_EXCEPTIONS
      */
     [[nodiscard]] static vmaware_technique svm_exceptions() {
-    #if (VMAWARE_X86)
+    #if (VMAWARE_X86)   
         if (!cpu::is_amd()) {
             vma_debug("SVM_EXCEPTIONS: AMD CPU not detected");
             return false;
@@ -12914,12 +12914,12 @@ public:
             return false; /* AMD CPUs only #UD if SVM is not active */
         }
 
-        /*
+        /* 
          * If we reach here, it means:
          * 1. An exception was triggered, since we're executing at CPL3
          * 2. That exception was not #UD, because the code would have returned in the branch above
          * 3. EFER.SVME is 1, because the exception was not #UD, so SVM is active
-         *
+         * 
          * If CPUID says SVM is not active (!svm_visible), it contradicts EFER.SVME being 1, it's a red flag
          * If there was no exception at all (!fault_hit), it contradicts our current CPL3 privilege, it's a red flag
          */
@@ -12931,7 +12931,7 @@ public:
         return true; /* If we reach here, we're sure an exception occurs (fault_hit is true), but was not #UD (must be a #GP), confirming EFER.SVME being 1 */
     #else
         return false;
-    #endif
+    #endif  
     }
 
 
@@ -13536,7 +13536,7 @@ public:
             if (resp_size < 10) {
                 return false;
             }
-            const u32 code =
+            const u32 code = 
                 (static_cast<u32>(resp[6]) << 24) |
                 (static_cast<u32>(resp[7]) << 16) |
                 (static_cast<u32>(resp[8]) << 8) |
@@ -13551,7 +13551,7 @@ public:
             if (offset + 4 > resp_size) {
                 return false;
             }
-            const u32 sel_count =
+            const u32 sel_count = 
                 (static_cast<u32>(resp[offset]) << 24) |
                 (static_cast<u32>(resp[offset + 1]) << 16) |
                 (static_cast<u32>(resp[offset + 2]) << 8) |
@@ -13569,10 +13569,10 @@ public:
             const u8 ret_sizeof_select = resp[offset];
             offset += 1 + ret_sizeof_select;
 
-            if (offset + 4 > resp_size) {
+            if (offset + 4 > resp_size) { 
                 return false;
             }
-            const u32 digest_count =
+            const u32 digest_count = 
                 (static_cast<u32>(resp[offset]) << 24) |
                 (static_cast<u32>(resp[offset + 1]) << 16) |
                 (static_cast<u32>(resp[offset + 2]) << 8) |
@@ -13583,7 +13583,7 @@ public:
                 return false;
             }
 
-            if (offset + 2 > resp_size) {
+            if (offset + 2 > resp_size) { 
                 return false;
             }
             const u16 digest_size = static_cast<u16>((resp[offset] << 8) | resp[offset + 1]);
@@ -13687,7 +13687,7 @@ public:
                 free_resources();
                 return false;
             }
-        }
+        }       
 
         auto be16 = [](const u8* p) -> u16 {
             return static_cast<u16>((static_cast<u16>(p[0]) << 8) | p[1]);
@@ -13876,7 +13876,7 @@ public:
             bool has_sha256 = false;
 
             for (u32 i = 0; i < digest_count; ++i) {
-                if (offset + 2 > log_size) {
+                if (offset + 2 > log_size) { 
                     parse_success = false;
                     break;
                 }
@@ -13890,15 +13890,15 @@ public:
                     break;
                 }
 
-                if (offset + size > log_size) {
-                    parse_success = false;
+                if (offset + size > log_size) { 
+                    parse_success = false; 
                     break;
                 }
 
                 if (alg_id == 0x000B) {
                     has_sha256 = true;
                 }
-
+                
                 if (temp_digest_count < 16) {
                     temp_digests[temp_digest_count].alg_id = alg_id;
                     temp_digests[temp_digest_count].size = size;
@@ -15164,7 +15164,7 @@ public:
                 return "Unknown";
             }
         }
-
+    
         const enum brand_enum brand = brands::brand_single(list);
 
         switch (brand) {
@@ -15265,7 +15265,7 @@ public:
 
     static std::string conclusion(const flagset& flags = core::generate_default()) {
         const u8 percent_tmp = percentage(flags);
-
+        
         constexpr const char* very_unlikely = "Very unlikely";
         constexpr const char* unlikely = "Unlikely";
         constexpr const char* potentially = "Potentially";
@@ -15273,7 +15273,7 @@ public:
         constexpr const char* likely = "Likely";
         constexpr const char* very_likely = "Very likely";
         constexpr const char* inside_vm = "Running inside";
-
+        
         auto make_conclusion = [&](const char* category) -> std::string {
             const brand_list_t& list = brands::brand_list(flags);
 
@@ -15287,8 +15287,8 @@ public:
              * name. It would look weird if the conclusion
              * message was "an VirtualBox" or "a Anubis"
              */
-            if
-            (
+            if 
+            ( 
                 (first_brand == brand_enum::ACRN)        ||
                 (first_brand == brand_enum::ANUBIS)      ||
                 (first_brand == brand_enum::BSD_VMM)     ||
@@ -15303,8 +15303,8 @@ public:
                 (first_brand == brand_enum::AMD_SEV)     ||
                 (first_brand == brand_enum::AMD_SEV_ES)  ||
                 (first_brand == brand_enum::AMD_SEV_SNP) ||
-                (first_brand == brand_enum::NULL_BRAND)
-            )
+                (first_brand == brand_enum::NULL_BRAND)              
+            )   
             {             addition = " an ";             }
 
             std::string brand_str;
@@ -15315,20 +15315,20 @@ public:
              */
             if (first_brand == brand_enum::NULL_BRAND) {
                 brand_str = "unknown";
-            }
+            } 
             else {
                 if (core::is_enabled(flags, MULTIPLE)) {
                     brand_str = brands::brand_multiple(flags);
-                }
+                } 
                 else {
                     brand_str = brands::brand_enum_to_string(first_brand);
                 }
             }
 
-            const std::string result =
-                std::string(category) +
-                addition +
-                brand_str +
+            const std::string result = 
+                std::string(category) + 
+                addition + 
+                brand_str + 
                 /* Hyper-V artifacts are an exception due to how unique the circumstance is */
                 (first_brand == brand_enum::HYPERV_ROOT ? "" : " VM");
 
@@ -15479,7 +15479,7 @@ inline const std::array<VM::core::technique, VM::enum_size + 1>& VM::core::get_t
             { VM::TEMPERATURE,{ 20, VM::temperature } },
             { VM::CGROUP,{ 70, VM::cgroup } },
             { VM::PROCESSES,{ 40, VM::processes } },
-        #endif
+        #endif    
 
         #if (VMAWARE_LINUX || VMAWARE_APPLE)
             { VM::THREAD_COUNT,{ 35, VM::thread_count } },
