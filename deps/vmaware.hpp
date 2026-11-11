@@ -386,7 +386,6 @@
 #include <limits>
 #include <cstddef>
 #include <system_error>
-#include <ranges>
 #include <cstdio>
 #include <functional>
 #include <cstring>
@@ -970,6 +969,8 @@ public:
     static_assert(version[0] >= '0' && version[0] <= '9', "version string must start with a digit (use '2.8.2', do not include 'v')");
     static_assert(version_major >= 10 || version[0] == static_cast<char>('0' + version_major), "Mismatch: the first character of version string does not match version_major");
 
+    #define VMAWARE_TECHNIQUE [[nodiscard]] static vmaware_technique
+
     struct vmaware_technique {
         bool detected;
         brand_enum brand;
@@ -1115,43 +1116,24 @@ public:
         }
 
         [[nodiscard]] static bool is_leaf_supported(const u32 p_leaf) {
-        #if (VMAWARE_APPLE) 
+        #if (VMAWARE_APPLE || !VMAWARE_X86)
             return false;
-        #endif
-            bool cached = false;
-
-            if (memo::leaf_cache::fetch(p_leaf, cached)) {
-                return cached;
-            }
-
-            u32 eax = 0; 
-            u32 unused = 0;
-            bool supported = false;
-
+        #else
+            u32 eax = 0, unused = 0;
             if (p_leaf < cpu::leaf::hypervisor) {
-                /* Standard range: 0x00000000 - 0x3FFFFFFF */
                 cpu::cpuid(eax, unused, unused, unused, cpu::leaf::basic_info);
-                vma_debug("CPUID: max standard leaf = 0x", std::hex, eax);
-                supported = (p_leaf <= eax);
+                return p_leaf <= eax;
             }
             else if (p_leaf < cpu::leaf::func_ext) {
-                /* Hypervisor range: 0x40000000 - 0x7FFFFFFF */
                 cpu::cpuid(eax, unused, unused, unused, cpu::leaf::hypervisor);
-                vma_debug("CPUID: max hypervisor leaf = 0x", std::hex, eax);
-                supported = (p_leaf <= eax);
+                return p_leaf <= eax;
             }
             else if (p_leaf < 0xC0000000) {
-                /* Extended range: 0x80000000 - 0xBFFFFFFF */
                 cpu::cpuid(eax, unused, unused, unused, cpu::leaf::func_ext);
-                vma_debug("CPUID: max extended leaf = 0x", std::hex, eax);
-                supported = (p_leaf <= eax);
+                return p_leaf <= eax;
             }
-            else {
-                supported = false;
-            }
-
-            memo::leaf_cache::store(p_leaf, supported);
-            return supported;
+            return false;
+        #endif
         }
 
         [[nodiscard]] static bool is_amd() noexcept {
@@ -1177,19 +1159,19 @@ public:
         }
 
         [[nodiscard]] static const char* get_brand() {
-            if (VMAWARE_LIKELY(memo::cpu_brand::is_cached())) {
-                return memo::cpu_brand::fetch();
-            }
-
         #if (!VMAWARE_X86 || VMAWARE_APPLE)
             return "Unknown";
         #else
+            static char brand_cache[49] = { 0 };
+            if (brand_cache[0] != '\0') {
+                return brand_cache;
+            }
+
             if (!cpu::is_leaf_supported(cpu::leaf::brand3)) {
                 return "Unknown";
             }
 
             u32 regs[12] = { 0 };
-
             cpu::cpuid(regs[0], regs[1], regs[2], regs[3], cpu::leaf::brand1);
             cpu::cpuid(regs[4], regs[5], regs[6], regs[7], cpu::leaf::brand2);
             cpu::cpuid(regs[8], regs[9], regs[10], regs[11], cpu::leaf::brand3);
@@ -1198,14 +1180,11 @@ public:
             std::memcpy(buffer, regs, sizeof(regs));
             buffer[48] = '\0';
 
-            /* left-trim only to handle stupid whitespaces before the brand string in ARM CPUs (Virtual CPUs) */
             const char* start_ptr = string::ltrim(buffer);
+            str_copy(brand_cache, start_ptr);
+            vma_debug("CPU: ", brand_cache);
 
-            memo::cpu_brand::store(start_ptr);
-            vma_debug("CPU: ", start_ptr);
-
-            /* Return pointer to the static cache, not the local stack buffer */
-            return memo::cpu_brand::fetch();
+            return brand_cache;
         #endif
         }
 
@@ -1453,232 +1432,6 @@ public:
         }
         dest[copy_len] = '\0';
     }
-
-    struct memo {
-        struct cpu_brand {
-            static void store(const char* s) noexcept {
-                str_copy(get_cache(), s);
-                get_cached_flag() = true;
-            }
-
-            static bool is_cached() noexcept {
-                return get_cached_flag();
-            }
-
-            static const char* fetch() noexcept {
-                return get_cache();
-            }
-
-        private:
-            using cache_t = char[128];
-
-            static cache_t& get_cache() noexcept {
-                static cache_t brand_cache = { 0 };
-                return brand_cache;
-            }
-
-            static bool& get_cached_flag() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-        };
-
-        struct thread_count {
-            static u32 fetch() noexcept {
-                static const u32 hw = std::thread::hardware_concurrency();
-                static const u32 cached_count = (hw != 0) ? hw : 1;
-                return cached_count;
-            }
-        };
-
-        struct hyperx {
-            static hyperx_state fetch() noexcept {
-                return get_state();
-            }
-
-            static void store(const hyperx_state p_state) noexcept {
-                get_state() = p_state;
-                get_cached_flag() = true;
-            }
-
-            static bool is_cached() noexcept {
-                return get_cached_flag();
-            }
-
-        private:
-            static hyperx_state& get_state() noexcept {
-                static hyperx_state state = HYPERV_UNKNOWN;
-                return state;
-            }
-
-            static bool& get_cached_flag() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-        };
-
-        struct leaf_entry {
-            u32 leaf;
-            bool value;
-            bool has_value;
-        };
-
-        struct leaf_cache {
-            static constexpr std::size_t CAPACITY = 128;
-
-            static bool fetch(u32 leaf, bool& out) noexcept {
-                auto& table = get_table();
-                const std::size_t cnt = get_count();
-                for (std::size_t i = 0; i < cnt; ++i) {
-                    if (table[i].has_value && table[i].leaf == leaf) {
-                        out = table[i].value;
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            static void store(u32 leaf, bool val) noexcept {
-                auto& table = get_table();
-                std::size_t& cnt = get_count();
-                std::size_t& next_index = get_next_index();
-
-                for (std::size_t i = 0; i < cnt; ++i) {
-                    if (table[i].has_value && table[i].leaf == leaf) {
-                        table[i].value = val;
-                        return;
-                    }
-                }
-
-                if (cnt < CAPACITY) {
-                    table[cnt] = { leaf, val, true };
-                    ++cnt;
-                    return;
-                }
-
-                table[next_index] = { leaf, val, true };
-                next_index = (next_index + 1) % CAPACITY;
-            }
-
-        private:
-            static std::array<leaf_entry, CAPACITY>& get_table() noexcept {
-                static std::array<leaf_entry, CAPACITY> table{};
-                return table;
-            }
-
-            static std::size_t& get_count() noexcept {
-                static std::size_t count = 0;
-                return count;
-            }
-
-            static std::size_t& get_next_index() noexcept {
-                static std::size_t next_index = 0;
-                return next_index;
-            }
-        };
-
-        struct bios_info {
-            using buffer_t = char[256];
-
-            /* Declared for unevaluated expressions like sizeof(memo::bios_info::manufacturer) */
-            static buffer_t manufacturer;
-            static buffer_t model;
-
-            static const char* fetch_manufacturer() noexcept {
-                return get_man();
-            }
-
-            static const char* fetch_model() noexcept {
-                return get_mod();
-            }
-
-            static void store_manufacturer(const char* VMAWARE_RESTRICT s) noexcept {
-                str_copy(get_man(), s);
-                get_cached_man() = true;
-            }
-
-            static void store_model(const char* VMAWARE_RESTRICT s) noexcept {
-                str_copy(get_mod(), s);
-                get_cached_mod() = true;
-            }
-
-            static bool is_cached() noexcept {
-                return get_cached_man() && get_cached_mod();
-            }
-
-        private:
-            static buffer_t& get_man() noexcept {
-                static buffer_t s_manufacturer = { 0 };
-                return s_manufacturer;
-            }
-
-            static buffer_t& get_mod() noexcept {
-                static buffer_t s_model = { 0 };
-                return s_model;
-            }
-
-            static bool& get_cached_man() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-
-            static bool& get_cached_mod() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-        };
-
-    #if (VMAWARE_WINDOWS)
-        struct module {
-            static HMODULE fetch_ntdll() noexcept {
-                return get_ntdll_handle();
-            }
-
-            static HMODULE fetch_kernel32() noexcept {
-                return get_kernel32_handle();
-            }
-
-            static void store_ntdll(const HMODULE ntdll) noexcept {
-                get_ntdll_handle() = ntdll;
-                get_ntdll_cached() = true;
-            }
-
-            static void store_kernel32(const HMODULE kernel32) noexcept {
-                get_kernel32_handle() = kernel32;
-                get_kernel32_cached() = true;
-            }
-
-            static bool is_ntdll_cached() noexcept {
-                return get_ntdll_cached();
-            }
-
-            static bool is_kernel32_cached() noexcept {
-                return get_kernel32_cached();
-            }
-
-        private:
-            static HMODULE& get_ntdll_handle() noexcept {
-                static HMODULE handle = nullptr;
-                return handle;
-            }
-
-            static HMODULE& get_kernel32_handle() noexcept {
-                static HMODULE handle = nullptr;
-                return handle;
-            }
-
-            static bool& get_ntdll_cached() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-
-            static bool& get_kernel32_cached() noexcept {
-                static bool cached = false;
-                return cached;
-            }
-        };
-    #endif
-    };
 
 #if (VMAWARE_WINDOWS)
     /* Timing attacks helper functionalities */
@@ -2544,6 +2297,16 @@ public:
         }
 
         [[nodiscard]] static HMODULE get_module(const bool get_ntdll) noexcept {
+            static HMODULE s_ntdll = nullptr;
+            static HMODULE s_k32 = nullptr;
+
+            if (get_ntdll && s_ntdll != nullptr) {
+                return s_ntdll;
+            }
+            if (!get_ntdll && s_k32 != nullptr) {
+                return s_k32;
+            }
+
             struct custom_unicode_string {
                 unsigned short length;
                 unsigned short max_length;
@@ -2573,13 +2336,6 @@ public:
                 }*ldr;
             };
 
-            if (get_ntdll && memo::module::is_ntdll_cached()) {
-                return memo::module::fetch_ntdll();
-            }
-            else if (!get_ntdll && memo::module::is_kernel32_cached()) {
-                return memo::module::fetch_kernel32();
-            }
-
             custom_peb* peb = nullptr;
 
         #if (VMAWARE_X86_64)
@@ -2598,13 +2354,11 @@ public:
 
             if (!peb || !peb->ldr) {
                 HMODULE fallback = GetModuleHandleW(get_ntdll ? L"ntdll.dll" : L"kernel32.dll");
-                if (fallback) {
-                    if (get_ntdll) {
-                        memo::module::store_ntdll(fallback);
-                    }
-                    else {
-                        memo::module::store_kernel32(fallback);
-                    }
+                if (get_ntdll) {
+                    s_ntdll = fallback;
+                }
+                else {
+                    s_k32 = fallback;
                 }
                 return fallback;
             }
@@ -2638,63 +2392,69 @@ public:
                 const unsigned short len_chars = ent->base_name.length / sizeof(wchar_t);
                 const wchar_t* buf = ent->base_name.buffer;
 
-                if (!res_ntdll && ((len_chars == 9 && matches(buf, L"ntdll.dll", 9)) || (len_chars == 5 && matches(buf, L"ntdll", 5)))) {
+                if (!res_ntdll && !s_ntdll && ((len_chars == 9 && matches(buf, L"ntdll.dll", 9)) || (len_chars == 5 && matches(buf, L"ntdll", 5)))) {
                     res_ntdll = reinterpret_cast<HMODULE>(ent->dll_base);
                 }
-                else if (!res_k32 && ((len_chars == 12 && matches(buf, L"kernel32.dll", 12)) || (len_chars == 8 && matches(buf, L"kernel32", 8)))) {
+                else if (!res_k32 && !s_k32 && ((len_chars == 12 && matches(buf, L"kernel32.dll", 12)) || (len_chars == 8 && matches(buf, L"kernel32", 8)))) {
                     res_k32 = reinterpret_cast<HMODULE>(ent->dll_base);
                 }
 
-                /* Break early if we satisfied the requested target and have no uncached secondary target pending */
-                const bool ntdll_done = res_ntdll != nullptr || memo::module::is_ntdll_cached();
-                const bool k32_done = res_k32 != nullptr || memo::module::is_kernel32_cached();
+                const bool ntdll_done = (res_ntdll != nullptr || s_ntdll != nullptr);
+                const bool k32_done = (res_k32 != nullptr || s_k32 != nullptr);
                 if (get_ntdll ? (res_ntdll != nullptr && k32_done) : (res_k32 != nullptr && ntdll_done)) {
                     break;
                 }
             }
 
             if (res_ntdll) {
-                memo::module::store_ntdll(res_ntdll);
+                s_ntdll = res_ntdll;
             }
             if (res_k32) {
-                memo::module::store_kernel32(res_k32);
+                s_k32 = res_k32;
             }
 
             if (get_ntdll) {
-                if (!res_ntdll) {
-                    res_ntdll = GetModuleHandleW(L"ntdll.dll");
-                    if (res_ntdll) {
-                        memo::module::store_ntdll(res_ntdll);
-                    }
+                if (!s_ntdll) {
+                    s_ntdll = GetModuleHandleW(L"ntdll.dll");
                 }
-                return res_ntdll;
+                return s_ntdll;
             }
 
-            if (!res_k32) {
-                res_k32 = GetModuleHandleW(L"kernel32.dll");
-                if (res_k32) {
-                    memo::module::store_kernel32(res_k32);
-                }
+            if (!s_k32) {
+                s_k32 = GetModuleHandleW(L"kernel32.dll");
             }
-            return res_k32;
+            return s_k32;
         }
     };
 #endif
 
     /* String utilities */
     struct string {
-        /* Converts a single character to lowercase */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR char to_lower(char c) noexcept {
-            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c | 0x20) : c;
+        static constexpr char to_lower(char c) noexcept {
+            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
         }
 
-        /* Converts a single character to uppercase */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR char to_upper(char c) noexcept {
-            return (c >= 'a' && c <= 'z') ? static_cast<char>(c & 0xDF) : c;
+        static constexpr char to_upper(char c) noexcept {
+            return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
         }
 
-        /* Checks if a string starts with a specific prefix (case-sensitive) */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 bool starts_with(const char* str, const char* prefix) noexcept {
+        static constexpr bool is_space(char c) noexcept {
+            return c == ' ' || (c >= '\t' && c <= '\r');
+        }
+
+        static constexpr bool is_digit(char c) noexcept {
+            return c >= '0' && c <= '9';
+        }
+
+        static constexpr bool is_hex(char c) noexcept {
+            return is_digit(c) || (to_lower(c) >= 'a' && to_lower(c) <= 'f');
+        }
+
+        static constexpr bool is_alnum(char c) noexcept {
+            return is_digit(c) || (to_lower(c) >= 'a' && to_lower(c) <= 'z');
+        }
+
+        static VMAWARE_CONSTEXPR bool starts_with(const char* str, const char* prefix) noexcept {
             if (!str || !prefix) {
                 return false;
             }
@@ -2708,8 +2468,7 @@ public:
             return true;
         }
 
-        /* Finds a substring inside a null-terminated string (case-sensitive) */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 const char* find(const char* haystack, const char* needle) noexcept {
+        static VMAWARE_CONSTEXPR const char* find(const char* haystack, const char* needle) noexcept {
             if (!haystack || !needle) {
                 return nullptr;
             }
@@ -2721,8 +2480,8 @@ public:
                     const char* h = haystack;
                     const char* n = needle;
                     while (*h && *n && *h == *n) {
-                        h++;
-                        n++;
+                        ++h;
+                        ++n;
                     }
                     if (!*n) {
                         return haystack;
@@ -2732,22 +2491,20 @@ public:
             return nullptr;
         }
 
-        /* Finds a substring inside a null-terminated string (case-insensitive) */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 const char* find_ci(const char* haystack, const char* needle) noexcept {
+        static VMAWARE_CONSTEXPR const char* find_ci(const char* haystack, const char* needle) noexcept {
             if (!haystack || !needle) {
                 return nullptr;
             }
             if (!*needle) {
                 return haystack;
             }
-            const char n0_lower = to_lower(*needle);
             for (; *haystack; ++haystack) {
-                if (to_lower(*haystack) == n0_lower) {
+                if (to_lower(*haystack) == to_lower(*needle)) {
                     const char* h = haystack;
                     const char* n = needle;
                     while (*h && *n && to_lower(*h) == to_lower(*n)) {
-                        h++;
-                        n++;
+                        ++h;
+                        ++n;
                     }
                     if (!*n) {
                         return haystack;
@@ -2757,114 +2514,69 @@ public:
             return nullptr;
         }
 
-        /* Checks if a std::string contains a substring (case-sensitive) */
-        static VMAWARE_FORCE_INLINE bool contains(const std::string& base_str, const char* keyword) noexcept {
+        static bool contains(const std::string& base_str, const char* keyword) noexcept {
             if (!keyword) {
                 return false;
             }
             return base_str.find(keyword) != std::string::npos;
         }
 
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 bool contains_ci(const char* haystack, const char* needle) noexcept {
-            if (!haystack || !needle) {
-                return false;
-            }
-            if (!*needle) {
-                return true;
-            }
-            const char n0_lower = to_lower(*needle);
-            for (; *haystack; ++haystack) {
-                if (to_lower(*haystack) == n0_lower) {
-                    const char* h = haystack;
-                    const char* n = needle;
-                    while (*h && *n && to_lower(*h) == to_lower(*n)) {
-                        h++;
-                        n++;
-                    }
-                    if (!*n) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+        static VMAWARE_CONSTEXPR bool contains_ci(const char* haystack, const char* needle) noexcept {
+            return find_ci(haystack, needle) != nullptr;
         }
 
-        /* Compares two null-terminated strings for equality (case-insensitive) */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 bool equals_ci(const char* s1, const char* s2) noexcept {
+        static VMAWARE_CONSTEXPR bool equals_ci(const char* s1, const char* s2) noexcept {
             if (!s1 || !s2) {
                 return s1 == s2;
             }
             while (*s1 && *s2) {
-                if (to_lower(static_cast<unsigned char>(*s1)) != to_lower(static_cast<unsigned char>(*s2))) {
+                if (to_lower(*s1) != to_lower(*s2)) {
                     return false;
                 }
-                s1++;
-                s2++;
+                ++s1;
+                ++s2;
             }
             return *s1 == *s2;
         }
 
-        /* Converts a std::string to lowercase in place */
-        static VMAWARE_FORCE_INLINE void to_lower_inplace(std::string& str) noexcept {
-            const size_t len = str.length();
-            for (size_t i = 0; i < len; ++i) {
-                str[i] = to_lower(str[i]);
+        static void to_lower_inplace(std::string& str) noexcept {
+            for (char& c : str) {
+                c = to_lower(c);
             }
         }
 
-        /* Trims leading and trailing whitespaces from a std::string in place */
-        static VMAWARE_FORCE_INLINE void trim_inplace(std::string& s) noexcept {
-            while (!s.empty() && is_space(s.front())) {
-                s.erase(s.begin());
+        static void trim_inplace(std::string& s) noexcept {
+            size_t start = 0;
+            while (start < s.size() && is_space(s[start])) {
+                ++start;
             }
-            while (!s.empty() && is_space(s.back())) {
-                s.pop_back();
+            size_t end = s.size();
+            while (end > start && is_space(s[end - 1])) {
+                --end;
             }
+            s = s.substr(start, end - start);
         }
 
-        /* Trims leading whitespaces from a null-terminated string pointer */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR_20 const char* ltrim(const char* str) noexcept {
+        static VMAWARE_CONSTEXPR const char* ltrim(const char* str) noexcept {
             if (!str) {
                 return nullptr;
             }
             while (*str && is_space(*str)) {
-                str++;
+                ++str;
             }
             return str;
         }
 
-        /* Checks if a std::string consists only of numerical digits */
-        static VMAWARE_FORCE_INLINE bool is_numeric(const std::string& s) noexcept {
+        static bool is_numeric(const std::string& s) noexcept {
             if (s.empty()) {
                 return false;
             }
-            const size_t len = s.length();
-            for (size_t i = 0; i < len; ++i) {
-                if (!is_digit(s[i])) {
+            for (char c : s) {
+                if (!is_digit(c)) {
                     return false;
                 }
             }
             return true;
-        }
-
-        /* Helper to check for ASCII spaces (avoids locale overhead) */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR bool is_space(char c) noexcept {
-            return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-        }
-
-        /* Helper to check for ASCII digits */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR bool is_digit(char c) noexcept {
-            return c >= '0' && c <= '9';
-        }
-
-        /* Helper to check for hexadecimal characters */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR bool is_hex(char c) noexcept {
-            return (c >= '0' && c <= '9') || (to_lower(c) >= 'a' && to_lower(c) <= 'f');
-        }
-
-        /* Helper to check if a character is alphanumeric */
-        static VMAWARE_FORCE_INLINE VMAWARE_CONSTEXPR bool is_alnum(char c) noexcept {
-            return (to_lower(c) >= 'a' && to_lower(c) <= 'z') || is_digit(c);
         }
     };
 
@@ -2994,7 +2706,7 @@ public:
         #endif
         }
 
-        [[nodiscard]] static vmaware_technique is_admin() noexcept {
+        [[nodiscard]] static bool is_admin() noexcept {
         #if (VMAWARE_LINUX || VMAWARE_APPLE)
             return (geteuid() == 0);
         #elif (VMAWARE_WINDOWS)
@@ -3101,87 +2813,50 @@ public:
             return result;
         }
 
-        static void append_to_stream(std::ostringstream& oss, const wchar_t* arg) {
-            oss << narrow_wide(arg);
-        }
-
-        static void append_to_stream(std::ostringstream& oss, const std::wstring& ws) {
-            oss << narrow_wide(ws.c_str());
-        }
-
-        static void append_to_stream(std::ostringstream& oss, const std::string& s) {
-            oss << s;
-        }
-
-        static void append_to_stream(std::ostringstream& oss, const char* s) {
-            if (s) {
-                oss << s;
+        inline static void to_stream(std::ostream& os, const wchar_t* s) {
+            if (!s) {
+                return;
+            }
+            while (*s) {
+                os.put(*s < 128 ? static_cast<char>(*s) : '?'); 
+                ++s;
             }
         }
-
-        static void append_to_stream(std::ostringstream& oss, const char c) {
-            oss << c;
+        inline static void to_stream(std::ostream& os, wchar_t* s) {
+            to_stream(os, static_cast<const wchar_t*>(s));
         }
-
-        static void append_to_stream(std::ostringstream& oss, const bool b) {
-            oss << (b ? "true" : "false");
+        template <std::size_t N>
+        inline static void to_stream(std::ostream& os, const wchar_t(&s)[N]) {
+            to_stream(os, static_cast<const wchar_t*>(s));
         }
-
+        inline static void to_stream(std::ostream& os, const std::wstring& s) {
+            to_stream(os, s.c_str());
+        }
+        inline static void to_stream(std::ostream& os, wchar_t c) {
+            os.put(c < 128 ? static_cast<char>(c) : '?');
+        }
         template <typename T>
-        static typename std::enable_if<
-            !std::is_convertible<T, std::wstring>::value &&
-            !std::is_same<typename std::decay<T>::type, wchar_t*>::value &&
-            !std::is_same<typename std::decay<T>::type, const wchar_t*>::value &&
-            !std::is_same<typename std::decay<T>::type, std::string>::value &&
-            !std::is_same<typename std::decay<T>::type, const char*>::value &&
-            !std::is_same<typename std::decay<T>::type, char*>::value,
-            void
-        >::type
-            append_to_stream(std::ostringstream& oss, T&& arg)
-        {
-            oss << std::forward<T>(arg);
+        inline static void to_stream(std::ostream& os, const T& val) {
+            os << val;
         }
 
-        static inline void print_to_stream(std::ostringstream&) noexcept {}
-
-        template <typename First, typename... Rest>
-        static inline void print_to_stream(std::ostringstream& oss, First&& first, Rest&&... rest) {
-            append_to_stream(oss, std::forward<First>(first));
-            print_to_stream(oss, std::forward<Rest>(rest)...);
-        }
-
+        /* Compact, C++11 variadic debug logger */
         template <typename... Args>
-        static void debug_msg(Args&&... message) {
-            static std::unordered_set<std::string> printed_messages;
-
+        static void debug_msg(Args&&... args) {
+        #if defined(VMAWARE_DEBUG) && VMAWARE_DEBUG == 1
+            static std::unordered_set<std::string> seen;
             std::ostringstream oss;
-            print_to_stream(oss, std::forward<Args>(message)...);
+            oss << std::boolalpha;
+            const int dummy[] = { 0, (to_stream(oss, args), 0)... };
+            VMAWARE_UNUSED(dummy);
 
-            std::string msg_content = oss.str();
-
-            if (printed_messages.find(msg_content) == printed_messages.end()) {
-            #if (VMAWARE_LINUX || VMAWARE_APPLE)
-                constexpr const char* black_bg = "\x1B[48;2;0;0;0m";
-                constexpr const char* bold = "\033[1m";
-                constexpr const char* blue = "\x1B[38;2;00;59;193m";
-                constexpr const char* ansiexit = "\x1B[0m";
-
-                std::cerr
-                    << black_bg
-                    << bold << "["
-                    << blue << "DEBUG"
-                    << ansiexit
-                    << bold << black_bg << "]"
-                    << ansiexit
-                    << " ";
-            #else
-                std::cerr << "[DEBUG] ";
-            #endif
-
-                std::cerr << msg_content << '\n';
-
-                printed_messages.insert(std::move(msg_content));
+            const std::string s = oss.str();
+            if (seen.insert(s).second) {
+                std::cerr << "[DEBUG] " << s << "\n";
             }
+        #else
+            (void)sizeof...(args);
+        #endif
         }
 
         [[nodiscard]] static std::unique_ptr<std::string> sys_result(const char* cmd) {
@@ -3309,7 +2984,7 @@ public:
         }
 
 
-        [[nodiscard]] static vmaware_technique is_x86_process_on_arm() {
+        [[nodiscard]] static bool is_x86_process_on_arm() {
             static const bool cached = []() -> bool {
             #if (VMAWARE_WINDOWS)
                 const char* brand = cpu::get_brand();
@@ -3404,8 +3079,11 @@ public:
         #if (!VMAWARE_WINDOWS)
             return HYPERV_UNKNOWN;
         #else
-            if (memo::hyperx::is_cached()) {
-                return memo::hyperx::fetch();
+            static hyperx_state cached_state = HYPERV_UNKNOWN;
+            static bool is_cached = false;
+
+            if (is_cached) {
+                return cached_state;
             }
 
             /* Check if hypervisor feature bit in CPUID Leaf 1, ECX bit 31 is enabled */
@@ -3916,7 +3594,8 @@ public:
             if (enlightenment_str && string::find(enlightenment_str, "KVM")) {
                 vma_debug("HYPER-X: Detected Hyper-V enlightenments");
                 core::add(brand_enum::QEMU_KVM_HYPERV);
-                memo::hyperx::store(HYPERV_ENLIGHTENMENT);
+                cached_state = HYPERV_ENLIGHTENMENT;
+                is_cached = true;
                 return HYPERV_ENLIGHTENMENT;
             }
 
@@ -3966,13 +3645,14 @@ public:
                 }
             }
 
-            memo::hyperx::store(state);
-            return state;
+            cached_state = state;
+            is_cached = true;
+            return cached_state;
         #endif
         }
 
     #if (VMAWARE_WINDOWS)
-        [[nodiscard]] static vmaware_technique is_windows_11() {
+        [[nodiscard]] static bool is_windows_11() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
@@ -3994,7 +3674,7 @@ public:
             return rtl_get_version(&vi) == 0 && vi.dwBuildNumber >= 22000;
         }
 
-        [[nodiscard]] static vmaware_technique is_windows_8_or_newer() {
+        [[nodiscard]] static bool is_windows_8_or_newer() {
             const HMODULE ntdll = memory::get_module(true);
             if (!ntdll) {
                 return false;
@@ -4016,7 +3696,7 @@ public:
             return (rtl_get_version(&vi) == 0 && (vi.dwMajorVersion > 6 || (vi.dwMajorVersion == 6 && vi.dwMinorVersion >= 2)));
         }
 
-        [[nodiscard]] static vmaware_technique is_32bit_execution_disabled() noexcept {
+        [[nodiscard]] static bool is_32bit_execution_disabled() noexcept {
         #if (VMAWARE_X86_64)
             wchar_t wow64_dir[MAX_PATH] = { 0 };
             const UINT ret = GetSystemWow64DirectoryW(wow64_dir, MAX_PATH);
@@ -4041,18 +3721,18 @@ public:
                 *out_model = "";
             }
 
-            if (memo::bios_info::is_cached()) {
-                const char* const man = memo::bios_info::fetch_manufacturer();
-                const char* const mod = memo::bios_info::fetch_model();
+            static char s_manufacturer[256] = { 0 };
+            static char s_model[256] = { 0 };
+            static bool s_cached = false;
 
+            if (s_cached) {
                 if (out_manufacturer) {
-                    *out_manufacturer = man;
+                    *out_manufacturer = s_manufacturer;
                 }
                 if (out_model) {
-                    *out_model = mod;
+                    *out_model = s_model;
                 }
-
-                return (man && man[0] != '\0') || (mod && mod[0] != '\0');
+                return (s_manufacturer[0] != '\0' || s_model[0] != '\0');
             }
 
             auto is_placeholder = [](const char* s) noexcept -> bool {
@@ -4114,9 +3794,8 @@ public:
                 return true;
             };
 
-            char man_tmp[sizeof(memo::bios_info::manufacturer)]{};
-            char model_tmp[sizeof(memo::bios_info::model)]{};
-
+            char man_tmp[256] = { 0 };
+            char model_tmp[256] = { 0 };
             bool got_any = false;
 
             /*
@@ -4127,16 +3806,16 @@ public:
              */
             if (read_reg_utf8(L"SystemManufacturer", man_tmp, sizeof(man_tmp)) &&
                 !is_placeholder(man_tmp)) {
-                memo::bios_info::store_manufacturer(man_tmp);
+                str_copy(s_manufacturer, man_tmp);
                 got_any = true;
             }
             else if (read_reg_utf8(L"BaseBoardManufacturer", man_tmp, sizeof(man_tmp)) &&
                 !is_placeholder(man_tmp)) {
-                memo::bios_info::store_manufacturer(man_tmp);
+                str_copy(s_manufacturer, man_tmp);
                 got_any = true;
             }
             else {
-                memo::bios_info::store_manufacturer("");
+                str_copy(s_manufacturer, man_tmp);
             }
 
             /*
@@ -4148,35 +3827,35 @@ public:
              */
             if (read_reg_utf8(L"SystemProductName", model_tmp, sizeof(model_tmp)) &&
                 !is_placeholder(model_tmp)) {
-                memo::bios_info::store_model(model_tmp);
+                str_copy(s_model, model_tmp);
                 got_any = true;
             }
             else if (read_reg_utf8(L"BaseBoardProduct", model_tmp, sizeof(model_tmp)) &&
                 !is_placeholder(model_tmp)) {
-                memo::bios_info::store_model(model_tmp);
+                str_copy(s_model, model_tmp);
                 got_any = true;
             }
             else if (read_reg_utf8(L"SystemSKU", model_tmp, sizeof(model_tmp)) &&
                 !is_placeholder(model_tmp)) {
-                memo::bios_info::store_model(model_tmp);
+                str_copy(s_model, model_tmp);
                 got_any = true;
             }
             else if (read_reg_utf8(L"BaseBoardVersion", model_tmp, sizeof(model_tmp)) &&
                 !is_placeholder(model_tmp)) {
-                memo::bios_info::store_model(model_tmp);
+                str_copy(s_model, model_tmp);
                 got_any = true;
             }
             else {
-                memo::bios_info::store_model("");
+                str_copy(s_model, model_tmp);
             }
 
+            s_cached = true;
             if (out_manufacturer) {
-                *out_manufacturer = memo::bios_info::fetch_manufacturer();
+                *out_manufacturer = s_manufacturer;
             }
             if (out_model) {
-                *out_model = memo::bios_info::fetch_model();
+                *out_model = s_model;
             }
-
             return got_any;
         }
     #endif
@@ -4676,7 +4355,7 @@ public:
      * @category x86
      * @implements VM::VMID
      */
-     [[nodiscard]] static vmaware_technique vmid() {
+     VMAWARE_TECHNIQUE vmid() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -4694,7 +4373,7 @@ public:
      * @category x86
      * @implements VM::CPU_BRAND
      */
-     [[nodiscard]] static vmaware_technique cpu_brand() {
+     VMAWARE_TECHNIQUE cpu_brand() {
      #if (!VMAWARE_X86)
          return false;
      #else
@@ -4749,7 +4428,7 @@ public:
      * @category x86
      * @implements VM::HYPERVISOR_BIT
      */
-    [[nodiscard]] static vmaware_technique hypervisor_bit() {
+    VMAWARE_TECHNIQUE hypervisor_bit() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -4786,7 +4465,7 @@ public:
      * @category x86
      * @implements VM::HYPERVISOR_STR
      */
-    [[nodiscard]] static vmaware_technique hypervisor_str() {
+    VMAWARE_TECHNIQUE hypervisor_str() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -4817,7 +4496,7 @@ public:
      * @author Discovered by Peter Ferrie, Senior Principal Researcher, Symantec Advanced Threat Research peter_ferrie@symantec.com
      * @implements VM::BOCHS_CPU
      */
-    [[nodiscard]] static vmaware_technique bochs_cpu() {
+    VMAWARE_TECHNIQUE bochs_cpu() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -4892,7 +4571,7 @@ public:
      * @category x86
      * @implements VM::CPUID_SIGNATURE
      */
-    [[nodiscard]] static vmaware_technique cpuid_signature() {
+    VMAWARE_TECHNIQUE cpuid_signature() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -4904,7 +4583,7 @@ public:
 
         constexpr u32 simplevisor = 0x00766853; /* " vhS" */
 
-        vma_debug("CPUID_SIGNATURE: eax = ", std::hex, eax);
+        vma_debug("CPUID_SIGNATURE: eax = 0x", std::hex, eax);
 
         if (eax == simplevisor) {
             return core::add(brand_enum::SIMPLEVISOR);
@@ -5048,7 +4727,7 @@ public:
      * @category x86
      * @implements VM::KGT_SIGNATURE
      */
-    [[nodiscard]] static vmaware_technique intel_kgt_signature() {
+    VMAWARE_TECHNIQUE intel_kgt_signature() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -5074,7 +4753,7 @@ public:
      * @category Windows, x86
      * @implements VM::TIMER
      */
-    [[nodiscard]] static vmaware_technique timer() VMAWARE_SERIALIZE {
+    VMAWARE_TECHNIQUE timer() VMAWARE_SERIALIZE {
     #if (VMAWARE_X86 && VMAWARE_WINDOWS)
         static const vmaware_technique timer_result = []() -> vmaware_technique {
             if (util::is_x86_process_on_arm()) {
@@ -5627,7 +5306,7 @@ public:
      * @category Linux
      * @implements VM::SYSTEMD
      */
-    [[nodiscard]] static vmaware_technique systemd_virt() {
+    VMAWARE_TECHNIQUE systemd_virt() {
         if (!(util::exists("/usr/bin/systemd-detect-virt") || util::exists("/bin/systemd-detect-virt"))) {
             vma_debug("SYSTEMD: ", "binary doesn't exist");
             return false;
@@ -5651,7 +5330,7 @@ public:
      * @category Linux
      * @implements VM::CVENDOR
      */
-    [[nodiscard]] static vmaware_technique chassis_vendor() {
+    VMAWARE_TECHNIQUE chassis_vendor() {
         const char* vendor_file = "/sys/devices/virtual/dmi/id/chassis_vendor";
 
         if (!util::exists(vendor_file)) {
@@ -5676,7 +5355,7 @@ public:
      * @category Linux
      * @implements VM::CTYPE
      */
-    [[nodiscard]] static vmaware_technique chassis_type() {
+    VMAWARE_TECHNIQUE chassis_type() {
         const char* chassis = "/sys/devices/virtual/dmi/id/chassis_type";
 
         if (util::exists(chassis)) {
@@ -5699,7 +5378,7 @@ public:
      * @category Linux
      * @implements VM::DOCKERENV
      */
-    [[nodiscard]] static vmaware_technique dockerenv() {
+    VMAWARE_TECHNIQUE dockerenv() {
         if (util::exists("/.dockerenv") || util::exists("/.dockerinit")) {
             return core::add(brand_enum::DOCKER);
         }
@@ -5714,7 +5393,7 @@ public:
      * @warning Permissions required
      * @implements VM::DMIDECODE
      */
-    [[nodiscard]] static vmaware_technique dmidecode() {
+    VMAWARE_TECHNIQUE dmidecode() {
         auto is_admin = []() -> bool {
             return geteuid() == 0;
         };
@@ -5807,7 +5486,7 @@ public:
      * @category Linux
      * @implements VM::MAC
      */
-    [[nodiscard]] static vmaware_technique mac_address_check() {
+    VMAWARE_TECHNIQUE mac_address_check() {
         struct fdguard {
             int fd;
             explicit fdguard(int fd = -1) : fd(fd) {}
@@ -5924,7 +5603,7 @@ public:
      * @warning Permissions required
      * @implements VM::DMESG
      */
-    [[nodiscard]] static vmaware_technique dmesg() {
+    VMAWARE_TECHNIQUE dmesg() {
         auto is_admin = []() -> bool {
             return geteuid() == 0;
         };
@@ -6021,7 +5700,7 @@ public:
      * @category Linux
      * @implements VM::HWMON
      */
-    [[nodiscard]] static vmaware_technique hwmon() {
+    VMAWARE_TECHNIQUE hwmon() {
         return (!util::exists("/sys/class/hwmon/"));
     }
 
@@ -6031,7 +5710,7 @@ public:
      * @category Linux
      * @implements VM::LINUX_USER_HOST
      */
-    [[nodiscard]] static vmaware_technique linux_user_host() {
+    VMAWARE_TECHNIQUE linux_user_host() {
         if (util::is_admin()) {
             return false;
         }
@@ -6059,7 +5738,7 @@ public:
      * @category ARM, Linux
      * @implements VM::BLUESTACKS_FOLDERS
      */
-    [[nodiscard]] static vmaware_technique bluestacks() {
+    VMAWARE_TECHNIQUE bluestacks() {
     #if (!VMAWARE_ARM)
         return false;
     #else
@@ -6081,7 +5760,7 @@ public:
      * @warning Permissions required
      * @implements VM::AMD_SEV_MSR
 	 */
-	[[nodiscard]] static vmaware_technique amd_sev_msr() {
+	VMAWARE_TECHNIQUE amd_sev_msr() {
     #if (VMAWARE_X86 && (VMAWARE_LINUX || VMAWARE_APPLE))
         if (!cpu::is_amd()) {
             return false;
@@ -6146,7 +5825,7 @@ public:
      * @category Linux
      * @implements VM::QEMU_VIRTUAL_DMI
      */
-    [[nodiscard]] static vmaware_technique qemu_virtual_dmi() {
+    VMAWARE_TECHNIQUE qemu_virtual_dmi() {
         const char* sys_vendor = "/sys/devices/virtual/dmi/id/sys_vendor";
         const char* modalias = "/sys/devices/virtual/dmi/id/modalias";
 
@@ -6169,7 +5848,7 @@ public:
      * @warning Permissions required
      * @implements VM::QEMU_USB
      */
-    [[nodiscard]] static vmaware_technique qemu_usb() {
+    VMAWARE_TECHNIQUE qemu_usb() {
         if (!util::is_admin()) {
             return false;
         }
@@ -6197,7 +5876,7 @@ public:
      * @category Linux
      * @implements VM::HYPERVISOR_DIR
      */
-    [[nodiscard]] static vmaware_technique hypervisor_dir() {
+    VMAWARE_TECHNIQUE hypervisor_dir() {
         struct dir_deleter {
             void operator()(DIR* d) const {
                 if (d != nullptr) {
@@ -6254,7 +5933,7 @@ public:
      * @category Linux
      * @implements VM::UML_CPU
      */
-    [[nodiscard]] static vmaware_technique uml_cpu() {
+    VMAWARE_TECHNIQUE uml_cpu() {
         /* Method 1, get the CPU brand model */
         const std::string brand = cpu::get_brand();
 
@@ -6284,7 +5963,7 @@ public:
      * @warning Permissions required
      * @implements VM::KMSG
      */
-    [[nodiscard]] static vmaware_technique kmsg() {
+    VMAWARE_TECHNIQUE kmsg() {
         if (!util::is_admin()) {
             return false;
         }
@@ -6348,7 +6027,7 @@ public:
      * @category Linux
      * @implements VM::VBOX_MODULE
      */
-    [[nodiscard]] static vmaware_technique vbox_module() {
+    VMAWARE_TECHNIQUE vbox_module() {
         const char* file = "/proc/modules";
 
         if (!util::exists(file)) {
@@ -6371,7 +6050,7 @@ public:
      * @category Linux
      * @implements VM::SYSINFO_PROC
      */
-    [[nodiscard]] static vmaware_technique sysinfo_proc() {
+    VMAWARE_TECHNIQUE sysinfo_proc() {
         const char* file = "/proc/sysinfo";
 
         if (!util::exists(file)) {
@@ -6393,7 +6072,7 @@ public:
      * @category Linux
      * @implements VM::DMI_SCAN
      */
-    [[nodiscard]] static vmaware_technique dmi_scan() {
+    VMAWARE_TECHNIQUE dmi_scan() {
         /*
          *  cat: /sys/class/dmi/id/board_serial:   Permission denied
          *  cat: /sys/class/dmi/id/chassis_serial: Permission denied
@@ -6468,7 +6147,7 @@ public:
      * @warning Permissions required
      * @implements VM::SMBIOS_VM_BIT
      */
-    [[nodiscard]] static vmaware_technique smbios_vm_bit() {
+    VMAWARE_TECHNIQUE smbios_vm_bit() {
         if (!util::is_admin()) {
             return false;
         }
@@ -6497,7 +6176,7 @@ public:
      * @category Linux
      * @implements VM::PODMAN_FILE
      */
-    [[nodiscard]] static vmaware_technique podman_file() {
+    VMAWARE_TECHNIQUE podman_file() {
         if (util::exists("/run/.containerenv")) {
             return core::add(brand_enum::PODMAN);
         }
@@ -6511,7 +6190,7 @@ public:
      * @category Linux
      * @implements VM::WSL_PROC
      */
-    [[nodiscard]] static vmaware_technique wsl_proc_subdir() {
+    VMAWARE_TECHNIQUE wsl_proc_subdir() {
         auto read_proc_nonblock = [](const char* path) -> std::string {
             const int fd = open(path, O_RDONLY | O_NONBLOCK);
 
@@ -6555,7 +6234,7 @@ public:
      * @category Linux
      * @implements VM::QEMU_FW_CFG
      */
-     [[nodiscard]] static vmaware_technique qemu_fw_cfg() {
+     VMAWARE_TECHNIQUE qemu_fw_cfg() {
         /*
          * Linux DT method: inspired by https://github.com/ShellCode33/VM-Detection
          * Linux sysfs method: looks for /sys/module/qemu_fw_cfg/ & /sys/firmware/qemu_fw_cfg/
@@ -6587,7 +6266,7 @@ public:
      * @category Linux
      * @implements VM::CONTAINER_PID
      */
-    [[nodiscard]] static vmaware_technique container_proc_id() {
+    VMAWARE_TECHNIQUE container_proc_id() {
         std::ifstream status_file("/proc/self/status");
         if (!status_file.is_open()) {
             return false;
@@ -6640,7 +6319,7 @@ public:
      * @category Linux
      * @implements VM::TEMPERATURE
      */
-    [[nodiscard]] static vmaware_technique temperature() {
+    VMAWARE_TECHNIQUE temperature() {
         if (util::exists("/sys/class/thermal/cooling_device0")) {
             return false;
         }
@@ -6653,7 +6332,7 @@ public:
      * @category Linux
      * @implements VM::CGROUP
      */
-    [[nodiscard]] static vmaware_technique cgroup() {
+    VMAWARE_TECHNIQUE cgroup() {
         const std::string contents = util::read_file("/proc/self/cgroup");
         
         if (contents.empty()) {
@@ -6723,7 +6402,7 @@ public:
      * @category Linux
      * @implements VM::PROCESSES
      */
-    [[nodiscard]] static vmaware_technique processes() {
+    VMAWARE_TECHNIQUE processes() {
         if (util::is_proc_running("qemu_ga")) {
             vma_debug("PROCESSES: Detected QEMU guest agent process.");
             return core::add(brand_enum::QEMU);
@@ -6768,7 +6447,7 @@ public:
      * @author Idea to check VPC's range from Tom Liston and Ed Skoudis' paper "On the Cutting Edge: Thwarting Virtual Machine Detection" (Windows)
      * 
      */
-    [[nodiscard]] static vmaware_technique system_registers() {
+    VMAWARE_TECHNIQUE system_registers() {
         if (util::is_x86_process_on_arm()) {
             return false;
         }
@@ -7037,7 +6716,7 @@ public:
      * @category Windows, Linux
      * @implements VM::AZURE
      */
-    [[nodiscard]] static vmaware_technique azure() noexcept {
+    VMAWARE_TECHNIQUE azure() noexcept {
     #if (VMAWARE_WINDOWS)
         char buf[MAX_COMPUTERNAME_LENGTH + 1] = { 0 };
         DWORD len = sizeof(buf);
@@ -7085,7 +6764,7 @@ public:
      * @warning Permissions required on Linux
      * @implements VM::FIRMWARE
      */
-    [[nodiscard]] static vmaware_technique firmware() {
+    VMAWARE_TECHNIQUE firmware() {
     #pragma pack(push, 1)
         struct acpi_header {
             char signature[4];
@@ -7954,7 +7633,7 @@ public:
      * @category Linux, Windows
      * @implements VM::DEVICES
      */
-    [[nodiscard]] static vmaware_technique devices() {
+    VMAWARE_TECHNIQUE devices() {
         struct pci_device { u16 vendor_id; u32 device_id; };
         std::vector<pci_device> devices;
 
@@ -8299,7 +7978,7 @@ public:
      * @author Teselka (https://github.com/Teselka)
      * @implements VM::BOOT_LOGO
      */
-    [[nodiscard]] static vmaware_technique boot_logo()
+    VMAWARE_TECHNIQUE boot_logo()
     #if (VMAWARE_X86 && (VMAWARE_CLANG || VMAWARE_GCC))
         __attribute__((__target__("crc32")))
     #endif
@@ -8425,7 +8104,7 @@ public:
     * @category Windows
     * @implements VM::DISK
     */
-    [[nodiscard]] static vmaware_technique disk() {
+    VMAWARE_TECHNIQUE disk() {
         bool result = false;
 
         /*
@@ -9088,17 +8767,19 @@ public:
      * @category x86 (ARM might have very low thread counts, which is why it should be only for x86)
      * @implements VM::THREAD_COUNT
      */
-    [[nodiscard]] static vmaware_technique thread_count() {
+    VMAWARE_TECHNIQUE thread_count() {
     #if (VMAWARE_X86 && !VMAWARE_APPLE)
-        vma_debug("THREAD_COUNT: ", "threads = ", memo::thread_count::fetch());
+        static const u32 hw = std::thread::hardware_concurrency();
+        const u32 count = (hw != 0) ? hw : 1;
+
+        vma_debug("THREAD_COUNT: threads = ", count);
 
         const struct cpu::stepping_struct steps = cpu::fetch_steppings();
-
         if (cpu::is_celeron(steps)) {
             return false;
         }
 
-        return (memo::thread_count::fetch() <= 2);
+        return (count <= 2);
     #else 
         return false;
     #endif
@@ -9117,7 +8798,7 @@ public:
      * @category MacOS
      * @implements VM::HWMODEL
      */
-    [[nodiscard]] static vmaware_technique hwmodel() {      
+    VMAWARE_TECHNIQUE hwmodel() {      
         /* Hw.model strings are short (like for example MacBookPro16,1), 128 bytes is plenty */
         char buffer[128] = { 0 };
         size_t size = sizeof(buffer);
@@ -9158,7 +8839,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_MEMSIZE
      */
-    [[nodiscard]] static vmaware_technique hw_memsize() {
+    VMAWARE_TECHNIQUE hw_memsize() {
         std::unique_ptr<std::string> result = util::sys_result("sysctl -n hw.memsize");
         const std::string ram = *result;
 
@@ -9189,7 +8870,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_IOKIT
      */
-    [[nodiscard]] static vmaware_technique io_kit() {
+    VMAWARE_TECHNIQUE io_kit() {
         /* Board_ptr and manufacturer_ptr empty */
         std::unique_ptr<std::string> platform_ptr = util::sys_result("ioreg -rd1 -c IOPlatformExpertDevice");
         std::unique_ptr<std::string> board_ptr = util::sys_result("ioreg -rd1 -c board-id");
@@ -9286,7 +8967,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::IOREG_GREP
      */
-    [[nodiscard]] static vmaware_technique ioreg_grep() {
+    VMAWARE_TECHNIQUE ioreg_grep() {
         auto check_usb = []() -> bool {
             std::unique_ptr<std::string> result = util::sys_result("ioreg -rd1 -c IOUSBHostDevice | grep \"USB Vendor Name\"");
             const std::string usb = *result;
@@ -9326,7 +9007,7 @@ public:
      * @link https://evasions.checkpoint.com/src/MacOS/macos.html
      * @implements VM::MAC_SIP
      */
-    [[nodiscard]] static vmaware_technique mac_sip() {
+    VMAWARE_TECHNIQUE mac_sip() {
         int hv_present = 0;
         std::size_t size = sizeof(hv_present);
         if (sysctlbyname("kern.hv_vmm_present",
@@ -9370,7 +9051,7 @@ public:
      * @category MacOS
      * @implements VM::MAC_SYS
      */
-    [[nodiscard]] static vmaware_technique mac_sys() {
+    VMAWARE_TECHNIQUE mac_sys() {
         const char* keyword = "virtual machine";
 
         if (std::unique_ptr<std::string> profiler_res_ptr = util::sys_result("system_profiler SPHardwareDataType")) {
@@ -9400,7 +9081,7 @@ public:
      * @category Windows
      * @implements VM::DLL
      */
-    [[nodiscard]] static vmaware_technique dll() {
+    VMAWARE_TECHNIQUE dll() {
         static constexpr struct {
             const wchar_t* dll_name;
             enum brand_enum brand;
@@ -9430,7 +9111,7 @@ public:
      * @category Windows
      * @implements VM::WINE
      */
-    [[nodiscard]] static vmaware_technique wine() {
+    VMAWARE_TECHNIQUE wine() {
         const HMODULE ntdll = memory::get_module(true);
         const char* ntdll_names[] = { "wine_get_version" };
         void* ntdll_funcs[1] = {};
@@ -9490,7 +9171,7 @@ public:
      * @category Windows
      * @implements VM::POWER_CAPABILITIES
      */
-    [[nodiscard]] static vmaware_technique power_capabilities() {
+    VMAWARE_TECHNIQUE power_capabilities() {
         const HMODULE ntdll = memory::get_module(true);
 
         constexpr const char* function_names[] = { "NtPowerInformation" }; /* Win8 // Windows Server 2012 */
@@ -9545,7 +9226,7 @@ public:
      * @category Windows
      * @implements VM::GAMARUE
      */
-    [[nodiscard]] static vmaware_technique gamarue() {
+    VMAWARE_TECHNIQUE gamarue() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -9678,7 +9359,7 @@ public:
      * @category Windows, x86_32
      * @implements VM::VPC_INVALID
      */
-    [[nodiscard]] static vmaware_technique vpc_invalid() {
+    VMAWARE_TECHNIQUE vpc_invalid() {
         bool rc = false;
     #if (VMAWARE_X86_32 && !VMAWARE_CLANG)
         if (util::is_x86_process_on_arm()) {
@@ -9754,7 +9435,7 @@ public:
      * @category Windows, x86_32
      * @implements VM::VMWARE_STR
      */
-    [[nodiscard]] static vmaware_technique vmware_str() {
+    VMAWARE_TECHNIQUE vmware_str() {
     #if (VMAWARE_X86_32)
         if (util::is_x86_process_on_arm()) {
             return false;
@@ -9787,7 +9468,7 @@ public:
      * @author hfiref0x
      * @implements VM::MUTEX
      */
-    [[nodiscard]] static vmaware_technique mutex() {
+    VMAWARE_TECHNIQUE mutex() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -9878,7 +9559,7 @@ public:
      * @link https://unprotect.it/snippet/checking-specific-folder-name/196/
      * @implements VM::CUCKOO
      */
-    [[nodiscard]] static vmaware_technique cuckoo() {
+    VMAWARE_TECHNIQUE cuckoo() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -9963,7 +9644,7 @@ public:
      * @category Windows
      * @implements VM::DISPLAY
      */
-    [[nodiscard]] static vmaware_technique display() {
+    VMAWARE_TECHNIQUE display() {
         const HDC hdc = GetDC(nullptr);
         if (!hdc) {
             return false;
@@ -9982,7 +9663,7 @@ public:
      * @category Windows
      * @implements VM::DRIVERS
      */
-    [[nodiscard]] static vmaware_technique drivers() {
+    VMAWARE_TECHNIQUE drivers() {
         struct _SYSTEM_MODULE_INFORMATION {
             PVOID  Reserved[2];
             PVOID  ImageBaseAddress;
@@ -10214,7 +9895,7 @@ public:
      * @category Windows
      * @implements VM::GPU_CAPABILITIES
      */
-    [[nodiscard]] static vmaware_technique gpu_capabilities() {
+    VMAWARE_TECHNIQUE gpu_capabilities() {
         /*
             Microsoft::WRL::ComPtr<IDirect3D9> d3d9 {
                 Direct3DCreate9(D3D_SDK_VERSION)
@@ -10254,7 +9935,7 @@ public:
      * @category Windows
      * @implements VM::HANDLES
      */
-    [[nodiscard]] static vmaware_technique device_handles() {
+    VMAWARE_TECHNIQUE device_handles() {
         const HMODULE ntdll = memory::get_module(true);
         if (!ntdll) {
             return false;
@@ -10349,7 +10030,7 @@ public:
      * @category Windows, x86
      * @implements VM::VIRTUAL_PROCESSORS
      */
-    [[nodiscard]] static vmaware_technique virtual_processors() {
+    VMAWARE_TECHNIQUE virtual_processors() {
     #if (VMAWARE_X86)
         int regs[4];
         __cpuid(regs, cpu::leaf::hypervisor);
@@ -10379,7 +10060,7 @@ public:
      * @link https://evasions.checkpoint.com/src/Evasions/techniques/global-os-objects.html
      * @implements VM::VIRTUAL_REGISTRY
      */
-    [[nodiscard]] static vmaware_technique virtual_registry() {
+    VMAWARE_TECHNIQUE virtual_registry() {
         struct custom_unicode_string {
             USHORT Length;
             USHORT MaximumLength;
@@ -10530,7 +10211,7 @@ public:
      * @category Windows
      * @implements VM::ACPI_SIGNATURE
      */
-    [[nodiscard]] static vmaware_technique acpi_signature() {
+    VMAWARE_TECHNIQUE acpi_signature() {
         /* Enumerate all devices */
         const HDEVINFO handle_dev_info = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES | DIGCF_PRESENT);
         if (handle_dev_info == INVALID_HANDLE_VALUE) {
@@ -10661,7 +10342,7 @@ public:
      * @category Windows, x86_64
      * @implements VM::TRAP
      */
-    [[nodiscard]] static vmaware_technique trap() {
+    VMAWARE_TECHNIQUE trap() {
         if (util::is_x86_process_on_arm()) {
             return false;
         }
@@ -10827,7 +10508,7 @@ public:
      * @category Windows
      * @implements VM::UD
      */
-    [[nodiscard]] static vmaware_technique ud() {
+    VMAWARE_TECHNIQUE ud() {
     #if (VMAWARE_X86) || (VMAWARE_ARM32) || (VMAWARE_ARM64)
         bool saw_ud = false;
 
@@ -10850,7 +10531,7 @@ public:
      * @category Windows
      * @implements VM::INTERRUPT_SHADOW
      */
-    [[nodiscard]] static vmaware_technique interrupt_shadow() {
+    VMAWARE_TECHNIQUE interrupt_shadow() {
     #if (VMAWARE_X86)
         if (util::hyper_x() == HYPERV_HOST) {
             return false;
@@ -11040,7 +10721,7 @@ public:
      * @category Windows
      * @implements VM::DBVM
      */
-    [[nodiscard]] static vmaware_technique dbvm() {
+    VMAWARE_TECHNIQUE dbvm() {
     #if (!VMAWARE_X86_64)
         return false;
     #else
@@ -11212,7 +10893,7 @@ public:
      * @category Windows
      * @implements VM::KERNEL_OBJECTS
      */
-    [[nodiscard]] static vmaware_technique kernel_objects() {
+    VMAWARE_TECHNIQUE kernel_objects() {
         struct OBJECT_DIRECTORY_INFORMATION {
             UNICODE_STRING Name;
             UNICODE_STRING TypeName;
@@ -11380,7 +11061,7 @@ public:
      * @warning Permissions required
      * @implements VM::NVRAM
      */
-    [[nodiscard]] static vmaware_technique nvram() {
+    VMAWARE_TECHNIQUE nvram() {
         if (!util::is_admin()) {
             return false;
         }
@@ -11764,7 +11445,7 @@ public:
      * @category Windows, x86
      * @implements VM::CPU_HEURISTIC
      */
-    [[nodiscard]] static vmaware_technique cpu_heuristic() {
+    VMAWARE_TECHNIQUE cpu_heuristic() {
         bool spoofed = false;
     #if (VMAWARE_X86)
         if (util::is_x86_process_on_arm()) {
@@ -12347,7 +12028,7 @@ public:
      * @category Windows, x86
      * @implements VM::MSR
      */
-    [[nodiscard]] static vmaware_technique msr() {
+    VMAWARE_TECHNIQUE msr() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -12553,7 +12234,7 @@ public:
      * @category Windows, x86
      * @implements VM::KVM_INTERCEPTION
      */
-    [[nodiscard]] static vmaware_technique kvm_interception() {
+    VMAWARE_TECHNIQUE kvm_interception() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -12591,7 +12272,7 @@ public:
      * @category Windows, x86
      * @implements VM::SINGLE_STEP
      */
-    [[nodiscard]] static vmaware_technique single_step() {
+    VMAWARE_TECHNIQUE single_step() {
     #if (!VMAWARE_X86)
         return false;
     #else
@@ -12688,7 +12369,7 @@ public:
      * @author Idea by @NickEverdox (https://github.com/everdox)
      * @implements VM::EIP_OVERFLOW
      */
-    [[nodiscard]] static vmaware_technique eip_overflow() {
+    VMAWARE_TECHNIQUE eip_overflow() {
     #if (!VMAWARE_X86_64) 
         /*
          * This requires mapping executable memory at the end of the 4GB address space (0xFFFF0000) so an instruction can wrap the 32 bit boundary
@@ -12883,7 +12564,7 @@ public:
      * @category Windows, x86
      * @implements VM::SVM_EXCEPTIONS
      */
-    [[nodiscard]] static vmaware_technique svm_exceptions() {
+    VMAWARE_TECHNIQUE svm_exceptions() {
     #if (VMAWARE_X86)   
         if (!cpu::is_amd()) {
             vma_debug("SVM_EXCEPTIONS: AMD CPU not detected");
@@ -12940,7 +12621,7 @@ public:
      * @category Windows
      * @implements VM::MEASURED_BOOT
      */
-    [[nodiscard]] static vmaware_technique measured_boot() {
+    VMAWARE_TECHNIQUE measured_boot() {
         using TBS_RESULT = UINT32;
         using TBS_HCONTEXT = void*;
 
@@ -13235,7 +12916,7 @@ public:
      * @category Windows
      * @implements VM::TPM
      */
-    [[nodiscard]] static vmaware_technique tpm() {
+    VMAWARE_TECHNIQUE tpm() {
     #pragma pack(push, 1)
         struct tcg_pcr_event_header {
             u32 pcr_index;
@@ -13987,7 +13668,7 @@ public:
      * @category Windows
      * @implements VM::VCPU_SCHEDULING
      */
-    [[nodiscard]] static vmaware_technique vcpu_scheduling() {
+    VMAWARE_TECHNIQUE vcpu_scheduling() {
         /* Local descriptor representing a physical processor and its logical mask */
         struct physical_processor_entry {
             u32 physical_id;
@@ -14112,7 +13793,7 @@ public:
      * @category Windows, Linux, Apple
      * @implements VM::EMULATION
      */
-    [[nodiscard]] static vmaware_technique emulation() noexcept {
+    VMAWARE_TECHNIQUE emulation() noexcept {
     #if (VMAWARE_X86)
         if (util::is_x86_process_on_arm()) {
             return false;
@@ -14163,7 +13844,123 @@ public:
             return true;
         }
 
-        /* 2. Two-byte INT 3 (0xCD 0x03) */
+        /*
+         * 2. Instruction boundary page straddle
+         * Tests if an instruction decoder or JIT engine correctly decodes and executes a
+         * single instruction spanning across a 4KB boundary between two pages with distinct protections.
+         */
+        auto check_page_boundary_straddle = []() noexcept -> bool {
+        #if (VMAWARE_WINDOWS)
+            SYSTEM_INFO sys_info{};
+            GetSystemInfo(&sys_info);
+            const DWORD page_size = sys_info.dwPageSize ? sys_info.dwPageSize : 4096;
+            const SIZE_T alloc_size = static_cast<SIZE_T>(page_size) * 2;
+
+            /* Allocate two contiguous 4KB pages */
+            u8* base = static_cast<u8*>(VirtualAlloc(nullptr, alloc_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+            if (!base) {
+                return false;
+            }
+
+            u8* page0 = base;
+            u8* page1 = base + page_size;
+
+            /*
+             * Place a 14-byte multi-byte NOP starting 8 bytes before the boundary (0xFF8..0xFFF),
+             * with the remaining 6 bytes on Page 1 (0x1000..0x1005), followed immediately by RET (0xC3):
+             *
+             * Page 0 (0xFF8..0xFFF - 8 bytes):
+             *   66 66 66 66 66 2E 0F 1F  ; 5x operand-size prefixes + CS segment prefix + 0F 1F (NOP opcode)
+             *
+             * Page 1 (0x1000..0x1006 - 7 bytes):
+             *   84 00 00 00 00 00 C3     ; ModR/M + SIB + 32-bit displacement + RET
+             */
+            const u8 page0_bytes[] = { 0x66, 0x66, 0x66, 0x66, 0x66, 0x2E, 0x0F, 0x1F };
+            const u8 page1_bytes[] = { 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC3 };
+
+            const size_t start_offset = page_size - sizeof(page0_bytes);
+            std::memcpy(page0 + start_offset, page0_bytes, sizeof(page0_bytes));
+            std::memcpy(page1, page1_bytes, sizeof(page1_bytes));
+
+            /* Make Page 1 RX while Page 0 remains RWX to enforce distinct paging structures */
+            DWORD old_prot = 0;
+            bool straddle_failed = false;
+
+            if (VirtualProtect(page1, page_size, PAGE_EXECUTE_READ, &old_prot)) {
+                FlushInstructionCache(GetCurrentProcess(), base, alloc_size);
+
+                /* Real hardware decodes across the boundary and returns 0 (no exception) */
+                if (memory::execute_handler(page0 + start_offset) != 0) {
+                    straddle_failed = true;
+                }
+            }
+
+            VirtualFree(base, 0, MEM_RELEASE);
+            return straddle_failed;
+
+        #elif (VMAWARE_LINUX || VMAWARE_APPLE)
+            const long sc_page = sysconf(_SC_PAGESIZE);
+            const size_t page_size = (sc_page > 0) ? static_cast<size_t>(sc_page) : 4096;
+            const size_t alloc_size = page_size * 2;
+
+            u8* base = static_cast<u8*>(mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+            if (base == MAP_FAILED) {
+                return false;
+            }
+
+            u8* page0 = base;
+            u8* page1 = base + page_size;
+
+            const u8 page0_bytes[] = { 0x66, 0x66, 0x66, 0x66, 0x66, 0x2E, 0x0F, 0x1F };
+            const u8 page1_bytes[] = { 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC3 };
+
+            const size_t start_offset = page_size - sizeof(page0_bytes);
+            std::memcpy(page0 + start_offset, page0_bytes, sizeof(page0_bytes));
+            std::memcpy(page1, page1_bytes, sizeof(page1_bytes));
+
+            bool straddle_failed = false;
+            if (mprotect(page1, page_size, PROT_READ | PROT_EXEC) == 0) {
+            #if (VMAWARE_GCC || VMAWARE_CLANG)
+                __builtin___clear_cache(reinterpret_cast<char*>(base), reinterpret_cast<char*>(base + alloc_size));
+            #endif
+
+                static sigjmp_t env;
+                struct sigaction sa;
+                struct sigaction old_segv, old_ill, old_bus;
+
+                std::memset(&sa, 0, sizeof(sa));
+                sa.sa_handler = [](int) { siglongjmp(env, 1); };
+                sigemptyset(&sa.sa_mask);
+
+                sigaction(SIGSEGV, &sa, &old_segv);
+                sigaction(SIGILL, &sa, &old_ill);
+                sigaction(SIGBUS, &sa, &old_bus);
+
+                if (sigsetjmp(env, 1) == 0) {
+                    memory::execute(page0 + start_offset);
+                }
+                else {
+                    straddle_failed = true;
+                }
+
+                sigaction(SIGSEGV, &old_segv, nullptr);
+                sigaction(SIGILL, &old_ill, nullptr);
+                sigaction(SIGBUS, &old_bus, nullptr);
+            }
+
+            munmap(base, alloc_size);
+            return straddle_failed;
+        #else
+            return false;
+        #endif
+        };
+
+        if (check_page_boundary_straddle()) {
+            vma_debug("EMULATION: Detected failure during cross-page instruction fetch");
+            return true;
+        }
+
+        /* 3. Two-byte INT 3 (0xCD 0x03) */
         auto check_two_byte_int3 = []() noexcept -> bool {
         #if (VMAWARE_WINDOWS)
             if (IsDebuggerPresent()) {
@@ -14184,7 +13981,9 @@ public:
                         const char* p = std::strstr(buf, "TracerPid:");
                         if (p) {
                             p += 10;
-                            while (*p == ' ' || *p == '\t') p++;
+                            while (*p == ' ' || *p == '\t') {
+                                p++;
+                            }
                             if (*p != '0') {
                                 return false;
                             }
@@ -14216,8 +14015,8 @@ public:
             sigemptyset(&sa.sa_mask);
 
             sigaction(SIGTRAP, &sa, &old_trap);
-            sigaction(SIGSEGV, &sa, &old_segv);
-            sigaction(SIGILL, &sa, &old_ill);
+            sigaction(SIGSEGV, &old_segv);
+            sigaction(SIGILL, &old_ill);
 
             const int sig_code = sigsetjmp(env, 1);
             if (sig_code == 0) {
@@ -14239,57 +14038,55 @@ public:
             return true;
         }
 
-        #if (VMAWARE_X86_32)
-            /* 3. Undocumented Radix Division via AAM */
-            auto check_legacy_radix = []() noexcept -> bool {
-            #if (VMAWARE_WINDOWS)
-                u32 res = 0;
-                if (memory::execute_ret_handler(aam_radix_stub, res) != 0) {
-                    /* Emulator raised #UD */
-                    return true;
-                }
-                return ((res & 0xFFFFu) != 0x0301u);
-            #elif (VMAWARE_LINUX || VMAWARE_APPLE)
-                static sigjmp_t env;
-                struct sigaction sa;
-                struct sigaction old_ill;
-
-                std::memset(&sa, 0, sizeof(sa));
-                sa.sa_handler = [](int) {
-                    siglongjmp(env, 1);
-                };
-                sigemptyset(&sa.sa_mask);
-                sigaction(SIGILL, &sa, &old_ill);
-
-                u32 res = 0;
-                bool illegal_insn = false;
-                if (sigsetjmp(env, 1) == 0) {
-                    res = memory::execute_ret(aam_radix_stub);
-                }
-                else {
-                    illegal_insn = true;
-                }
-
-                sigaction(SIGILL, &old_ill, nullptr);
-
-                if (illegal_insn) {
-                    /* Emulator raised #UD */
-                    return true;
-                }
-                return ((res & 0xFFFFu) != 0x0301u);
-            #else
-                const u32 res = memory::execute_ret(aam_radix_stub);
-                return ((res & 0xFFFFu) != 0x0301u);
-            #endif
-            };
-
-            if (check_legacy_radix()) {
-                vma_debug("EMULATION: Radix division not handled correctly");
-                return true;
+    #if (VMAWARE_X86_32)
+        /* 4. Undocumented Radix Division via AAM */
+        auto check_legacy_radix = []() noexcept -> bool {
+        #if (VMAWARE_WINDOWS)
+            u32 res = 0;
+            if (memory::execute_ret_handler(aam_radix_stub, res) != 0) {
+                return true; /* Emulator raised #UD */
             }
-        #endif
+            return ((res & 0xFFFFu) != 0x0301u);
+        #elif (VMAWARE_LINUX || VMAWARE_APPLE)
+            static sigjmp_t env;
+            struct sigaction sa;
+            struct sigaction old_ill;
 
-        /* 4. ALU parity and auxiliary flags evaluation */
+            std::memset(&sa, 0, sizeof(sa));
+            sa.sa_handler = [](int) {
+                siglongjmp(env, 1);
+            };
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGILL, &sa, &old_ill);
+
+            u32 res = 0;
+            bool illegal_insn = false;
+            if (sigsetjmp(env, 1) == 0) {
+                res = memory::execute_ret(aam_radix_stub);
+            }
+            else {
+                illegal_insn = true;
+            }
+
+            sigaction(SIGILL, &old_ill, nullptr);
+
+            if (illegal_insn) {
+                return true; /* Emulator raised #UD */
+            }
+            return ((res & 0xFFFFu) != 0x0301u);
+        #else
+            const u32 res = memory::execute_ret(aam_radix_stub);
+            return ((res & 0xFFFFu) != 0x0301u);
+        #endif
+        };
+
+        if (check_legacy_radix()) {
+            vma_debug("EMULATION: Radix division not handled correctly");
+            return true;
+        }
+    #endif
+
+        /* 5. ALU parity and auxiliary flags evaluation */
         auto check_alu_flags = []() noexcept -> bool {
             const u32 flags = memory::execute_ret(alu_flags_stub);
             const bool af_set = (flags & (1u << 4)) != 0;
@@ -14303,7 +14100,7 @@ public:
             return true;
         }
 
-        /* 5. x87 80-Bit extended-precision storage integrity */
+        /* 6. x87 80-Bit extended-precision storage integrity */
         auto check_x87_precision = []() noexcept -> bool {
             const u32 status = memory::execute_ret(x87_precision_stub);
             /* If truncated to 64-bit double, lowest 11 bits are lost -> diff == 0.0 -> C3 (bit 14) is set */
@@ -14315,7 +14112,7 @@ public:
             return true;
         }
 
-        /* 6. FPU status word stack overflow & condition flags */
+        /* 7. FPU status word stack overflow & condition flags */
         auto check_x87_overflow = []() noexcept -> bool {
             const u32 sw = memory::execute_ret(fpu_overflow_stub);
             /* Physical x87 sets IE (bit 0), SF (bit 6), and C1 (bit 9) -> mask 0x0241 */
@@ -14520,40 +14317,6 @@ public:
         static flagset flag_collector;
         static flagset disabled_flag_collector;
 
-        /* Settings management */
-        struct settings {
-            flagset flag_collector = generate_default();
-
-            VMAWARE_CONSTEXPR void enable(const enum_flags flag) {
-                if (flag == ALL) {
-                    flag_collector |= generate_all();
-                }
-                else if (flag == DEFAULT) {
-                    flag_collector |= generate_default();
-                }
-                else if (flag == EXPERIMENTAL) {
-                    disable_experimental_techniques(flag_collector);
-                }
-                else {
-                    const auto idx = static_cast<size_t>(flag);
-                    if (idx < flag_collector.size()) {
-                        flag_collector.set(idx, true);
-                    }
-                }
-            }
-
-            VMAWARE_CONSTEXPR void disable(const enum_flags flag) {
-                const auto idx = static_cast<size_t>(flag);
-                if (idx < flag_collector.size()) {
-                    flag_collector.set(idx, false);
-                }
-            }
-
-            constexpr bool is_set(const enum_flags flag) const {
-                return static_cast<size_t>(flag) < flag_collector.size() && flag_collector.test(static_cast<size_t>(flag));
-            }
-        };
-
         static flagset generate_default() {
             static const flagset default_flags = []() {
                 flagset f;
@@ -14579,10 +14342,6 @@ public:
             return default_flags;
         }
 
-        static void generate_default(flagset& flags) {
-            flags = generate_default();
-        }
-
         static flagset generate_all() {
             flagset flags = generate_default();
 
@@ -14596,20 +14355,6 @@ public:
             return flags;
         }
 
-        static void generate_all(flagset& flags) {
-            flags = generate_all();
-        }
-
-        static void reset_disabled_flagset() {
-            get_disabled_flag_collector().reset();
-            for (const auto technique : get_disabled_techniques()) {
-                const auto idx = static_cast<size_t>(technique);
-                if (idx < get_disabled_flag_collector().size()) {
-                    get_disabled_flag_collector().set(idx, true);
-                }
-            }
-        }
-
         static void disable_experimental_techniques(flagset& flags) {
             for (const auto technique : experimental_techniques) {
                 const auto idx = static_cast<size_t>(technique);
@@ -14619,57 +14364,15 @@ public:
             }
         }
 
-        static void disable_experimental_techniques() {
-            for (const auto technique : experimental_techniques) {
-                const auto idx = static_cast<size_t>(technique);
-                if (idx < get_disabled_flag_collector().size()) {
-                    get_disabled_flag_collector().set(idx, true);
-                }
-            }
-        }
-
         template <typename... Args>
-        static constexpr typename std::enable_if<sizeof...(Args) == 0, bool>::type
-            verify_flags() noexcept {
-            return true;
-        }
-
-        template <typename T, typename... Args>
-        static constexpr bool verify_flags() noexcept {
-            return std::is_same<typename std::decay<T>::type, enum_flags>::value&& verify_flags<Args...>();
-        }
-
-        static flagset arg_handler() noexcept {
+        static flagset arg_handler(Args... args) {
             flagset collector;
-            generate_default(collector);
-            collector &= ~get_disabled_flag_collector();
-            get_disabled_flag_collector().reset();
-            return collector;
-        }
+            const int dummy[] = { 0, (collector.set(static_cast<std::size_t>(args)), 0)... };
+            VMAWARE_UNUSED(dummy);
 
-        template <typename flagset_type>
-        static inline void populate_flagset(flagset_type&) noexcept {}
-
-        template <typename flagset_type, typename head_type, typename... tail_types>
-        static inline void populate_flagset(flagset_type& collector, head_type head, tail_types... tail) {
-            collector.set(static_cast<std::size_t>(head), true);
-            populate_flagset(collector, tail...);
-        }
-
-        template <typename T, typename... Args>
-        static VMAWARE_CONSTEXPR flagset arg_handler(T first, Args... args) {
-            static_assert(verify_flags<T, Args...>(), "argument handler only accepts enum_flags variables");
-
-            flagset collector;
-            populate_flagset(collector, first, args...);
-
-            if (collector.test(DEFAULT)) {
+            if (collector.test(DEFAULT) || are_techniques_empty(collector)) {
                 collector |= generate_default();
                 collector.reset(DEFAULT);
-            }
-
-            if (are_techniques_empty(collector)) {
-                collector |= generate_default();
             }
 
             if (collector.test(ALL)) {
@@ -14687,29 +14390,9 @@ public:
 
             return collector;
         }
-
-        template <typename... Args>
-        static void disabled_arg_handler(Args... args) {
-            static_assert(verify_flags<Args...>(), "disabled argument handler only accepts enum_flags variables");
-            static_assert(sizeof...(Args) > 0, "VM::DISABLE() must contain at least one flag");
-
-            flagset temp;
-            using expander = int[];
-            (void)expander {
-                0, (temp.set(static_cast<size_t>(args), true), 0)...
-            };
-
-            if (core::is_setting_flag_set(temp)) {
-                throw std::invalid_argument("VM::DISABLE() must not contain a settings flag, they are disabled by default anyway");
-            }
-
-            get_disabled_flag_collector() |= temp;
-        }
     };
 
     // START OF PUBLIC FUNCTIONS
-
-    using settings = core::settings;
 
     /**
      * @brief Check for a specific technique based on flag argument
@@ -14786,29 +14469,17 @@ public:
      * @return const char*
      * @link https://github.com/NotRequiem/VMAware/blob/main/docs/documentation.md#vmbrand
      */
-    template <typename ...Args>
-    static std::string brand(const Args ...args) {
-        const flagset flags = core::arg_handler(args...);
-        return brand(flags);
-    }
-
-
-    static std::string brand(const settings& settings) {
-        const flagset flags = settings.flag_collector;
-        return brand(flags);
-    }
-
-
     static std::string brand(const flagset& flags = core::generate_default()) {
-        /* Is the multiple setting flag enabled? */
-        const bool is_multiple = core::is_enabled(flags, MULTIPLE);
-
-        if (is_multiple) {
+        if (core::is_enabled(flags, MULTIPLE)) {
             return brands::brand_multiple(flags);
         }
-
         const enum brand_enum b = brands::brand_single(flags);
         return brands::brand_enum_to_string(b);
+    }
+
+    template <typename T, typename... Args>
+    static std::string brand(T first, Args... rest) {
+        return brand(core::arg_handler(first, rest...));
     }
 
 
@@ -14818,42 +14489,15 @@ public:
      * @return bool
      * @link https://github.com/NotRequiem/VMAware/blob/main/docs/documentation.md#vmdetect
      */
-    template <typename ...Args>
-    static bool detect(const Args ...args) noexcept {
-        /* Fetch all the flags in a std::bitset */
-        const flagset flags = core::arg_handler(args...);
-        return detect(flags);
-    }
-
-
-    static bool detect(const settings& settings) noexcept {
-        const flagset flags = settings.flag_collector;
-        return detect(flags);
-    }
-
-
-    static bool detect(const flagset &flags = core::generate_default()) {
-        /*
-         * Run all the techniques based on the
-         * flags above, and get a total score
-         */
+    static bool detect(const flagset& flags = core::generate_default()) {
         const u16 points = core::run_all(flags, SHORTCUT);
+        const u16 threshold = core::is_enabled(flags, HIGH_THRESHOLD) ? high_threshold_score : threshold_score;
+        return (points >= threshold);
+    }
 
-        u16 threshold = threshold_score;
-
-        /*
-         * If high threshold is set, the bar
-         * will be 300. If not, leave it as 150
-         */
-        if (core::is_enabled(flags, HIGH_THRESHOLD)) {
-            threshold = high_threshold_score;
-        }
-
-        if (points >= threshold) {
-            return true;
-        }
-
-        return false;
+    template <typename T, typename... Args>
+    static bool detect(T first, Args... rest) {
+        return detect(core::arg_handler(first, rest...));
     }
 
 
@@ -14863,44 +14507,18 @@ public:
      * @return std::uint8_t
      * @link https://github.com/NotRequiem/VMAware/blob/main/docs/documentation.md#vmpercentage
      */
-    template <typename ...Args>
-    static u8 percentage(const Args ...args) noexcept {
-        /* Fetch all the flags in a std::bitset */
-        const flagset flags = core::arg_handler(args...);
-        return percentage(flags);
-    }
-
-
-    static u8 percentage(const settings& settings) noexcept {
-        const flagset flags = settings.flag_collector;
-        return percentage(flags);
-    }
-
-
-    static u8 percentage(const flagset &flags = core::generate_default()) {
-        /*
-         * Run all the techniques based on the
-         * flags above, and get a total score
-         */
+    static u8 percentage(const flagset& flags = core::generate_default()) {
         const u16 points = core::run_all(flags, SHORTCUT);
+        const u16 threshold = core::is_enabled(flags, HIGH_THRESHOLD) ? high_threshold_score : threshold_score;
 
-        u8 percent = 0;
-        u16 threshold = threshold_score;
+        if (points >= threshold) return 100;
+        if (points >= 100) return 99;
+        return static_cast<u8>(std::min<u16>(points, 99));
+    }
 
-        /* Set to 300 if high threshold is enabled */
-        if (core::is_enabled(flags, HIGH_THRESHOLD)) {
-            threshold = high_threshold_score;
-        }
-
-        if (points >= threshold) {
-            percent = 100;
-        } else if (points >= 100) {
-            percent = 99;
-        } else {
-            percent = static_cast<u8>(std::min<u16>(points, 99));
-        }
-
-        return percent;
+    template <typename T, typename... Args>
+    static u8 percentage(T first, Args... rest) {
+        return percentage(core::arg_handler(first, rest...));
     }
 
 
@@ -14959,11 +14577,9 @@ public:
      */
     template <typename ...Args>
     static enum_flags DISABLE(const Args ...args) {
-        /*
-         * Basically core::arg_handler but in reverse,
-         * it'll clear the bits of the provided flags
-         */
-        core::disabled_arg_handler(args...);
+        auto& disabled = core::get_disabled_flag_collector();
+        const int dummy[] = { 0, (disabled.set(static_cast<std::size_t>(args)), 0)... };
+        VMAWARE_UNUSED(dummy);
         return VM::NULL_ARG;
     }
 
@@ -15083,35 +14699,20 @@ public:
      * @param any flag combination in VM structure or nothing
      * @return VM::enum_vector
      */
-    template <typename ...Args>
-    static std::vector<enum_flags> detected_enums(const Args ...args) {
-        const flagset flags = core::arg_handler(args...);
-        return detected_enums(flags);
-    }
-
-
-    static std::vector<enum_flags> detected_enums(const settings& settings) {
-        const flagset flags = settings.flag_collector;
-        return detected_enums(flags);
-    }
-
-
-    static std::vector<enum_flags> detected_enums(const flagset &flags = core::generate_default()) {
+    static std::vector<enum_flags> detected_enums(const flagset& flags = core::generate_default()) {
         std::vector<enum_flags> tmp;
-
-        /*
-         * This will loop through all the enums in the technique_vector variable,
-         * and then checks each of them and outputs the enum that was detected
-         */
         for (u8 i = technique_begin; i < technique_end; ++i) {
             const enum_flags technique_enum = static_cast<enum_flags>(i);
-
-            if ((flags.test(technique_enum)) && (check(technique_enum))) {
+            if (flags.test(technique_enum) && check(technique_enum)) {
                 tmp.push_back(technique_enum);
             }
         }
-
         return tmp;
+    }
+
+    template <typename T, typename... Args>
+    static std::vector<enum_flags> detected_enums(T first, Args... rest) {
+        return detected_enums(core::arg_handler(first, rest...));
     }
 
 
@@ -15120,21 +14721,13 @@ public:
      * @param any flag combination in VM structure or nothing
      * @return std::uint8_t
      */
-    template <typename ...Args>
-    static u8 detected_count(const Args ...args) noexcept {
-        const flagset flags = core::arg_handler(args...);
-        return detected_count(flags);
-    }
-
-
-    static u8 detected_count(const settings& settings) noexcept {
-        const flagset flags = settings.flag_collector;
-        return detected_count(flags);
-    }
-
-
     static u8 detected_count(const flagset& flags = core::generate_default()) {
         return core::run_all(flags).detected_count;
+    }
+
+    template <typename T, typename... Args>
+    static u8 detected_count(T first, Args... rest) {
+        return detected_count(core::arg_handler(first, rest...));
     }
 
 
@@ -15143,105 +14736,94 @@ public:
      * @param any flag combination in VM structure or nothing
      * @return std::string
      */
-    template <typename ...Args>
-    static std::string type(const Args ...args) {
-        const flagset flags = core::arg_handler(args...);
-        return type(flags);
-    }
-
-
-    static std::string type(const settings& settings) {
-        const flagset flags = settings.flag_collector;
-        return type(flags);
-    }
-
-
-    static std::string type(const flagset &flags = core::generate_default()) {
+    static std::string type(const flagset& flags = core::generate_default()) {
         const brand_list_t& list = brands::brand_list(flags);
 
-        if (core::is_enabled(flags, MULTIPLE)) {
-            if (list.size() > 1) {
-                return "Unknown";
-            }
+        if (core::is_enabled(flags, MULTIPLE) && list.size() > 1) {
+            return "Unknown";
         }
-    
+
         const enum brand_enum brand = brands::brand_single(list);
 
         switch (brand) {
-            case brand_enum::XEN: return "Hypervisor (Type 1)";
-            case brand_enum::VMWARE_ESX: return "Hypervisor (Type 1)";
-            case brand_enum::ACRN: return "Hypervisor (Type 1)";
-            case brand_enum::QNX: return "Hypervisor (Type 1)";
-            case brand_enum::HYPERV: return "Hypervisor (Type 2)"; /* to clarify you're running under a Hyper-V guest VM */
-            case brand_enum::AZURE_HYPERV: return "Hypervisor (Type 1)";
-            case brand_enum::KVM: return "Hypervisor (Type 1)";
-            case brand_enum::KVM_HYPERV: return "Hypervisor (Type 1)";
-            case brand_enum::QEMU_KVM_HYPERV: return "Hypervisor (Type 1)";
-            case brand_enum::QEMU_KVM: return "Hypervisor (Type 1)";
-            case brand_enum::INTEL_KGT: return "Hypervisor (Type 1)";
-            case brand_enum::SIMPLEVISOR: return "Hypervisor (Type 1)";
-            case brand_enum::OPENSTACK: return "Hypervisor (Type 1)";
-            case brand_enum::KUBEVIRT: return "Hypervisor (Type 1)";
-            case brand_enum::POWERVM: return "Hypervisor (Type 1)";
-            case brand_enum::AWS_NITRO: return "Hypervisor (Type 1)";
-            case brand_enum::LKVM: return "Hypervisor (Type 1)";
-            case brand_enum::NOIRVISOR: return "Hypervisor (Type 1)";
-            case brand_enum::WSL: return "Hypervisor (Type 1)";  /* Type 1-derived lightweight VM system */
-            case brand_enum::DBVM: return "Hypervisor (Type 1)" ;
-            case brand_enum::BHYVE: return "Hypervisor (Type 2)";
-            case brand_enum::VBOX: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE_EXPRESS: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE_GSX: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE_WORKSTATION: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE_FUSION: return "Hypervisor (Type 2)";
-            case brand_enum::PARALLELS: return "Hypervisor (Type 2)";
-            case brand_enum::VPC: return "Hypervisor (Type 2)";
-            case brand_enum::NVMM: return "Hypervisor (Type 2)";
-            case brand_enum::BSD_VMM: return "Hypervisor (Type 2)";
-            case brand_enum::HYPERV_VPC: return "Hypervisor (Type 2)";
-            case brand_enum::VMWARE_HARD: return "Hypervisor (Type 2)";
-            case brand_enum::UTM: return "Hypervisor (Type 2)";
-            case brand_enum::INTEL_HAXM: return "Hosted hypervisor / accelerator (Type 2)";
-            case brand_enum::CUCKOO: return "Sandbox";
-            case brand_enum::SANDBOXIE: return "Sandbox";
-            case brand_enum::HYBRID: return "Sandbox";
-            case brand_enum::CWSANDBOX: return "Sandbox";
-            case brand_enum::JOEBOX: return "Sandbox";
-            case brand_enum::ANUBIS: return "Sandbox";
-            case brand_enum::COMODO: return "Sandbox";
-            case brand_enum::THREATEXPERT: return "Sandbox";
-            case brand_enum::QIHOO: return "Sandbox";
-            case brand_enum::BOCHS: return "Emulator";
-            case brand_enum::BLUESTACKS: return "Emulator";
-            case brand_enum::NEKO_PROJECT: return "Emulator";
-            case brand_enum::COMPAQ: return "Emulator";
-            case brand_enum::INSIGNIA: return "Emulator";
-            case brand_enum::CONNECTIX: return "Emulator";
-            case brand_enum::QEMU: return "Emulator/Hypervisor (Type 2)";
-            case brand_enum::JAILHOUSE: return "Partitioning Hypervisor";
-            case brand_enum::UNISYS: return "Partitioning Hypervisor";
-            case brand_enum::DOCKER: return "Container";
-            case brand_enum::PODMAN: return "Container";
-            case brand_enum::OPENVZ: return "Container";
-            case brand_enum::CONTAINERD: return "Container";
-            case brand_enum::LMHS: return "Hypervisor (unknown type)";
-            case brand_enum::WINE: return "Compatibility layer";
-            case brand_enum::INTEL_TDX: return "Trusted Domain";
-            case brand_enum::APPLE_VZ: return "Unknown";
-            case brand_enum::UML: return "Paravirtualised/Hypervisor (Type 2)";
-            case brand_enum::AMD_SEV: return "VM encryptor";
-            case brand_enum::AMD_SEV_ES: return "VM encryptor";
-            case brand_enum::AMD_SEV_SNP: return "VM encryptor";
-            case brand_enum::GCE: return "Cloud VM service";
-            case brand_enum::BAREVISOR: return "Hypervisor (Type 1)";
-            case brand_enum::HYPERPLATFORM: return "Hypervisor (Type 1)";
-            case brand_enum::MINIVISOR: return "Hypervisor (Type 1)";
-            case brand_enum::HYPERV_ROOT: return "Host machine"; /* This refers to the type 1 hypervisor where Windows normally runs under, we put "Host machine" to clarify you're not running under a traditional VM if this is detected */
-            case brand_enum::NULL_BRAND: return "Unknown";
+            case brand_enum::XEN:               return "Hypervisor (Type 1)";
+            case brand_enum::VMWARE_ESX:        return "Hypervisor (Type 1)";
+            case brand_enum::ACRN:              return "Hypervisor (Type 1)";
+            case brand_enum::QNX:               return "Hypervisor (Type 1)";
+            case brand_enum::HYPERV:            return "Hypervisor (Type 2)";
+            case brand_enum::AZURE_HYPERV:      return "Hypervisor (Type 1)";
+            case brand_enum::KVM:               return "Hypervisor (Type 1)";
+            case brand_enum::KVM_HYPERV:        return "Hypervisor (Type 1)";
+            case brand_enum::QEMU_KVM_HYPERV:   return "Hypervisor (Type 1)";
+            case brand_enum::QEMU_KVM:          return "Hypervisor (Type 1)";
+            case brand_enum::INTEL_KGT:         return "Hypervisor (Type 1)";
+            case brand_enum::SIMPLEVISOR:       return "Hypervisor (Type 1)";
+            case brand_enum::OPENSTACK:         return "Hypervisor (Type 1)";
+            case brand_enum::KUBEVIRT:          return "Hypervisor (Type 1)";
+            case brand_enum::POWERVM:           return "Hypervisor (Type 1)";
+            case brand_enum::AWS_NITRO:         return "Hypervisor (Type 1)";
+            case brand_enum::LKVM:              return "Hypervisor (Type 1)";
+            case brand_enum::NOIRVISOR:         return "Hypervisor (Type 1)";
+            case brand_enum::WSL:               return "Hypervisor (Type 1)";
+            case brand_enum::DBVM:              return "Hypervisor (Type 1)";
+            case brand_enum::BHYVE:             return "Hypervisor (Type 2)";
+            case brand_enum::VBOX:              return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE:            return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE_EXPRESS:    return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE_GSX:        return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE_WORKSTATION:return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE_FUSION:     return "Hypervisor (Type 2)";
+            case brand_enum::PARALLELS:         return "Hypervisor (Type 2)";
+            case brand_enum::VPC:               return "Hypervisor (Type 2)";
+            case brand_enum::NVMM:              return "Hypervisor (Type 2)";
+            case brand_enum::BSD_VMM:           return "Hypervisor (Type 2)";
+            case brand_enum::HYPERV_VPC:        return "Hypervisor (Type 2)";
+            case brand_enum::VMWARE_HARD:       return "Hypervisor (Type 2)";
+            case brand_enum::UTM:               return "Hypervisor (Type 2)";
+            case brand_enum::INTEL_HAXM:        return "Hosted hypervisor / accelerator (Type 2)";
+            case brand_enum::CUCKOO:            return "Sandbox";
+            case brand_enum::SANDBOXIE:         return "Sandbox";
+            case brand_enum::HYBRID:            return "Sandbox";
+            case brand_enum::CWSANDBOX:         return "Sandbox";
+            case brand_enum::JOEBOX:            return "Sandbox";
+            case brand_enum::ANUBIS:            return "Sandbox";
+            case brand_enum::COMODO:            return "Sandbox";
+            case brand_enum::THREATEXPERT:      return "Sandbox";
+            case brand_enum::QIHOO:             return "Sandbox";
+            case brand_enum::BOCHS:             return "Emulator";
+            case brand_enum::BLUESTACKS:        return "Emulator";
+            case brand_enum::NEKO_PROJECT:      return "Emulator";
+            case brand_enum::COMPAQ:            return "Emulator";
+            case brand_enum::INSIGNIA:          return "Emulator";
+            case brand_enum::CONNECTIX:         return "Emulator";
+            case brand_enum::QEMU:              return "Emulator/Hypervisor (Type 2)";
+            case brand_enum::JAILHOUSE:         return "Partitioning Hypervisor";
+            case brand_enum::UNISYS:            return "Partitioning Hypervisor";
+            case brand_enum::DOCKER:            return "Container";
+            case brand_enum::PODMAN:            return "Container";
+            case brand_enum::OPENVZ:            return "Container";
+            case brand_enum::CONTAINERD:        return "Container";
+            case brand_enum::LMHS:              return "Hypervisor (unknown type)";
+            case brand_enum::WINE:              return "Compatibility layer";
+            case brand_enum::INTEL_TDX:         return "Trusted Domain";
+            case brand_enum::APPLE_VZ:          return "Unknown";
+            case brand_enum::UML:               return "Paravirtualised/Hypervisor (Type 2)";
+            case brand_enum::AMD_SEV:           return "VM encryptor";
+            case brand_enum::AMD_SEV_ES:        return "VM encryptor";
+            case brand_enum::AMD_SEV_SNP:       return "VM encryptor";
+            case brand_enum::GCE:               return "Cloud VM service";
+            case brand_enum::BAREVISOR:         return "Hypervisor (Type 1)";
+            case brand_enum::HYPERPLATFORM:     return "Hypervisor (Type 1)";
+            case brand_enum::MINIVISOR:         return "Hypervisor (Type 1)";
+            case brand_enum::HYPERV_ROOT:       return "Host machine";
+            case brand_enum::NULL_BRAND:        return "Unknown";
+            default:                            return "Invalid";
         }
+    }
 
-        return "Invalid";
+    template <typename T, typename... Args>
+    static std::string type(T first, Args... rest) {
+        return type(core::arg_handler(first, rest...));
     }
 
 
@@ -15250,22 +14832,9 @@ public:
       * @param any flag combination in VM structure or nothing
       * @return std::string
       */
-    template <typename ...Args>
-    static std::string conclusion(const Args ...args) {
-        const flagset flags = core::arg_handler(args...);
-        return conclusion(flags);
-    }
-
-
-    static std::string conclusion(const settings& settings) {
-        const flagset flags = settings.flag_collector;
-        return conclusion(flags);
-    }
-
-
     static std::string conclusion(const flagset& flags = core::generate_default()) {
         const u8 percent_tmp = percentage(flags);
-        
+
         constexpr const char* very_unlikely = "Very unlikely";
         constexpr const char* unlikely = "Unlikely";
         constexpr const char* potentially = "Potentially";
@@ -15273,76 +14842,53 @@ public:
         constexpr const char* likely = "Likely";
         constexpr const char* very_likely = "Very likely";
         constexpr const char* inside_vm = "Running inside";
-        
+
         auto make_conclusion = [&](const char* category) -> std::string {
             const brand_list_t& list = brands::brand_list(flags);
-
             const brand_enum first_brand = brands::brand_single(list);
-
             const char* addition = " a ";
 
-            /*
-             * This basically just fixes the grammatical syntax
-             * by either having "a" or "an" before the VM brand
-             * name. It would look weird if the conclusion
-             * message was "an VirtualBox" or "a Anubis"
-             */
-            if 
-            ( 
-                (first_brand == brand_enum::ACRN)        ||
-                (first_brand == brand_enum::ANUBIS)      ||
-                (first_brand == brand_enum::BSD_VMM)     ||
-                (first_brand == brand_enum::INTEL_HAXM)  ||
-                (first_brand == brand_enum::APPLE_VZ)    ||
-                (first_brand == brand_enum::INTEL_KGT)   ||
-                (first_brand == brand_enum::POWERVM)     ||
-                (first_brand == brand_enum::OPENSTACK)   ||
-                (first_brand == brand_enum::AWS_NITRO)   ||
-                (first_brand == brand_enum::OPENVZ)      ||
-                (first_brand == brand_enum::INTEL_TDX)   ||
-                (first_brand == brand_enum::AMD_SEV)     ||
-                (first_brand == brand_enum::AMD_SEV_ES)  ||
+            if ((first_brand == brand_enum::ACRN) ||
+                (first_brand == brand_enum::ANUBIS) ||
+                (first_brand == brand_enum::BSD_VMM) ||
+                (first_brand == brand_enum::INTEL_HAXM) ||
+                (first_brand == brand_enum::APPLE_VZ) ||
+                (first_brand == brand_enum::INTEL_KGT) ||
+                (first_brand == brand_enum::POWERVM) ||
+                (first_brand == brand_enum::OPENSTACK) ||
+                (first_brand == brand_enum::AWS_NITRO) ||
+                (first_brand == brand_enum::OPENVZ) ||
+                (first_brand == brand_enum::INTEL_TDX) ||
+                (first_brand == brand_enum::AMD_SEV) ||
+                (first_brand == brand_enum::AMD_SEV_ES) ||
                 (first_brand == brand_enum::AMD_SEV_SNP) ||
-                (first_brand == brand_enum::NULL_BRAND)              
-            )   
-            {             addition = " an ";             }
-
-            std::string brand_str;
-
-            /*
-             * This is basically just to remove the capital "U",
-             * since it doesn't make sense to see "an Unknown"
-             */
-            if (first_brand == brand_enum::NULL_BRAND) {
-                brand_str = "unknown";
-            } 
-            else {
-                if (core::is_enabled(flags, MULTIPLE)) {
-                    brand_str = brands::brand_multiple(flags);
-                } 
-                else {
-                    brand_str = brands::brand_enum_to_string(first_brand);
-                }
+                (first_brand == brand_enum::NULL_BRAND))
+            {
+                addition = " an ";
             }
 
-            const std::string result = 
-                std::string(category) + 
-                addition + 
-                brand_str + 
-                /* Hyper-V artifacts are an exception due to how unique the circumstance is */
-                (first_brand == brand_enum::HYPERV_ROOT ? "" : " VM");
+            std::string brand_str;
+            if (first_brand == brand_enum::NULL_BRAND) {
+                brand_str = "unknown";
+            }
+            else {
+                brand_str = core::is_enabled(flags, MULTIPLE)
+                    ? brands::brand_multiple(flags)
+                    : brands::brand_enum_to_string(first_brand);
+            }
 
-            return result;
+            return std::string(category) + addition + brand_str +
+                (first_brand == brand_enum::HYPERV_ROOT ? "" : " VM");
         };
 
         if (core::is_enabled(flags, DYNAMIC)) {
-            if (percent_tmp == 0)  { return "Running on bare metal";        }
-            if (percent_tmp <= 20) { return make_conclusion(very_unlikely); }
-            if (percent_tmp <= 35) { return make_conclusion(unlikely);      }
-            if (percent_tmp < 50)  { return make_conclusion(potentially);   }
-            if (percent_tmp <= 62) { return make_conclusion(might);         }
-            if (percent_tmp <= 75) { return make_conclusion(likely);        }
-            if (percent_tmp < 100) { return make_conclusion(very_likely);   }
+            if (percent_tmp == 0)   return "Running on bare metal";
+            if (percent_tmp <= 20)  return make_conclusion(very_unlikely);
+            if (percent_tmp <= 35)  return make_conclusion(unlikely);
+            if (percent_tmp < 50)   return make_conclusion(potentially);
+            if (percent_tmp <= 62)  return make_conclusion(might);
+            if (percent_tmp <= 75)  return make_conclusion(likely);
+            if (percent_tmp < 100)  return make_conclusion(very_likely);
         }
 
         if (percent_tmp == 100) {
@@ -15350,6 +14896,11 @@ public:
         }
 
         return "Running on bare metal";
+    }
+
+    template <typename T, typename... Args>
+    static std::string conclusion(T first, Args... rest) {
+        return conclusion(core::arg_handler(first, rest...));
     }
 
     inline static u16 technique_count() noexcept {
